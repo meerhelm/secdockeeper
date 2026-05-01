@@ -11,6 +11,7 @@ import '../../folders/usecases/watch_folder_changes.dart';
 import '../../sharing/usecases/import_shared_package.dart';
 import '../../tags/usecases/list_all_tags.dart';
 import '../../vault/usecases/lock_vault.dart';
+import '../../vault/usecases/rotate_vault_key.dart';
 import '../folder_scope.dart';
 import '../usecases/import_files.dart';
 import '../usecases/search_documents.dart';
@@ -29,6 +30,7 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
     required CreateFolderUseCase createFolder,
     required WatchDocumentChangesUseCase watchDocumentChanges,
     required WatchFolderChangesUseCase watchFolderChanges,
+    required RotateVaultKeyUseCase rotateVaultKey,
   })  : _searchDocuments = searchDocuments,
         _listFolders = listFolders,
         _listAllTags = listAllTags,
@@ -37,6 +39,7 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
         _exportBackup = exportBackup,
         _lockVault = lockVault,
         _createFolder = createFolder,
+        _rotateVaultKey = rotateVaultKey,
         super(const DocumentsListState()) {
     _docSub = watchDocumentChanges().listen((_) => _refreshDocuments());
     _folderSub = watchFolderChanges().listen((_) => _refreshFolders());
@@ -53,6 +56,7 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
   final ExportBackupUseCase _exportBackup;
   final LockVaultUseCase _lockVault;
   final CreateFolderUseCase _createFolder;
+  final RotateVaultKeyUseCase _rotateVaultKey;
 
   late final StreamSubscription<void> _docSub;
   late final StreamSubscription<void> _folderSub;
@@ -160,6 +164,23 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
     } catch (e) {
       if (!isClosed) {
         emit(state.copyWith(busy: false, error: 'Backup failed: $e'));
+      }
+    }
+  }
+
+  Future<void> changeMasterPassword(String newPassword) async {
+    emit(state.copyWith(busy: true, clearError: true, clearMessage: true));
+    try {
+      await _rotateVaultKey(newPassword);
+      if (!isClosed) {
+        emit(state.copyWith(
+          busy: false,
+          message: 'Master password changed successfully',
+        ));
+      }
+    } catch (e) {
+      if (!isClosed) {
+        emit(state.copyWith(busy: false, error: 'Failed to change password: $e'));
       }
     }
   }

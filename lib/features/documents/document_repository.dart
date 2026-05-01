@@ -137,6 +137,37 @@ class DocumentRepository {
     );
   }
 
+  Future<Map<int, DocumentCryptoMaterial>> getAllCrypto() async {
+    final rows = await _db.query(
+      'documents',
+      columns: ['id', 'dek_wrapped', 'dek_nonce', 'dek_mac', 'file_nonce', 'file_mac'],
+    );
+    return {
+      for (final r in rows)
+        r['id']! as int: DocumentCryptoMaterial(
+          dekWrapped: r['dek_wrapped']! as Uint8List,
+          dekNonce: r['dek_nonce']! as Uint8List,
+          dekMac: r['dek_mac']! as Uint8List,
+          fileNonce: r['file_nonce']! as Uint8List,
+          fileMac: r['file_mac']! as Uint8List,
+        ),
+    };
+  }
+
+  Future<void> updateWrappedDek(int id, Uint8List wrapped, Uint8List nonce, Uint8List mac) async {
+    await _db.update(
+      'documents',
+      {
+        'dek_wrapped': wrapped,
+        'dek_nonce': nonce,
+        'dek_mac': mac,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
   Future<void> deleteById(int id) async {
     await _db.transaction((txn) async {
       await txn.delete('documents', where: 'id = ?', whereArgs: [id]);

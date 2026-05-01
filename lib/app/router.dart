@@ -35,6 +35,7 @@ import '../features/vault/cubit/lock_cubit.dart';
 import '../features/vault/lock_screen.dart';
 import '../features/vault/usecases/initialize_vault.dart';
 import '../features/vault/usecases/lock_vault.dart';
+import '../features/vault/usecases/rotate_vault_key.dart';
 import '../features/vault/usecases/unlock_vault.dart';
 import '../features/vault/vault_service.dart';
 import 'app_scope.dart';
@@ -129,6 +130,12 @@ GoRouter buildAppRouter({required VaultService vault}) {
               watchDocumentChanges:
                   WatchDocumentChangesUseCase(s.documents),
               watchFolderChanges: WatchFolderChangesUseCase(s.folders),
+              rotateVaultKey: RotateVaultKeyUseCase(
+                vault: s.vault,
+                documents: s.documents,
+                hiddenTags: s.hiddenTags,
+                paths: s.paths,
+              ),
             ),
             child: const DocumentsListScreen(),
           );

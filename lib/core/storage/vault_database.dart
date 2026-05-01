@@ -7,6 +7,8 @@ class VaultDatabase {
 
   Database get db => _db;
 
+  static VaultDatabase fromRaw(Database db) => VaultDatabase._(db);
+
   static Future<VaultDatabase> open({
     required String path,
     required String password,
@@ -25,6 +27,12 @@ class VaultDatabase {
   }
 
   Future<void> close() => _db.close();
+
+  Future<void> rekey(String newPassword) async {
+    // Using rawQuery instead of execute to ensure it's processed and awaited 
+    // correctly by sqflite_sqlcipher. PRAGMA rekey returns an empty list on success.
+    await _db.rawQuery("PRAGMA rekey = '$newPassword'");
+  }
 
   static Future<void> _onCreate(Database db, int version) async {
     final batch = db.batch();

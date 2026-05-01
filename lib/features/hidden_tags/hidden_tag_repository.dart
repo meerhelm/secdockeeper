@@ -96,6 +96,38 @@ class HiddenTagRepository {
     return rows.map((r) => r['document_id']! as int).toList();
   }
 
+  Future<List<HiddenTagEntry>> getAllEntries() async {
+    final rows = await _db.query('hidden_tag_index');
+    return rows.map((r) => HiddenTagEntry(
+      tagHash: r['tag_hash']! as Uint8List,
+      documentId: r['document_id']! as int,
+      encryptedName: r['encrypted_name'] as Uint8List?,
+      encryptedNameNonce: r['encrypted_name_nonce'] as Uint8List?,
+      encryptedNameMac: r['encrypted_name_mac'] as Uint8List?,
+    )).toList();
+  }
+
+  Future<void> updateEntries(List<HiddenTagUpdate> updates) async {
+    await _db.transaction((txn) async {
+      for (final u in updates) {
+        // Delete old entry first because tag_hash (PK) might change
+        await txn.delete(
+          'hidden_tag_index',
+          where: 'document_id = ? AND tag_hash = ?',
+          whereArgs: [u.documentId, u.oldTagHash],
+        );
+        await txn.insert('hidden_tag_index', {
+          'tag_hash': u.newTagHash,
+          'document_id': u.documentId,
+          'encrypted_name': u.newEncryptedName,
+          'encrypted_name_nonce': u.newEncryptedNameNonce,
+          'encrypted_name_mac': u.newEncryptedNameMac,
+        });
+      }
+    });
+    _notify();
+  }
+
   void _notify() {
     if (!_changes.isClosed) _changes.add(null);
   }
@@ -104,3 +136,38 @@ class HiddenTagRepository {
     _changes.close();
   }
 }
+
+class HiddenTagEntry {
+  const HiddenTagEntry({
+    required this.tagHash,
+    required this.documentId,
+    this.encryptedName,
+    this.encryptedNameNonce,
+    this.encryptedNameMac,
+  });
+
+  final Uint8List tagHash;
+  final int documentId;
+  final Uint8List? encryptedName;
+  final Uint8List? encryptedNameNonce;
+  final Uint8List? encryptedNameMac;
+}
+
+class HiddenTagUpdate {
+  const HiddenTagUpdate({
+    required this.documentId,
+    required this.oldTagHash,
+    required this.newTagHash,
+    this.newEncryptedName,
+    this.newEncryptedNameNonce,
+    this.newEncryptedNameMac,
+  });
+
+  final int documentId;
+  final Uint8List oldTagHash;
+  final Uint8List newTagHash;
+  final Uint8List? newEncryptedName;
+  final Uint8List? newEncryptedNameNonce;
+  final Uint8List? newEncryptedNameMac;
+}
+

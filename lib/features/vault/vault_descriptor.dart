@@ -19,12 +19,32 @@ class VaultDescriptor {
   final KdfParams kdf;
 
   static const _fileName = 'vault.json';
+  static const _backupFileName = 'vault.json.bak';
   static const _currentVersion = 1;
   static const _saltLength = 16;
 
   static File _file(VaultPaths paths) => File(p.join(paths.root.path, _fileName));
+  static File _backupFile(VaultPaths paths) => File(p.join(paths.root.path, _backupFileName));
 
   static bool exists(VaultPaths paths) => _file(paths).existsSync();
+
+  static Future<void> backup(VaultPaths paths) async {
+    final original = _file(paths);
+    if (original.existsSync()) {
+      await original.copy(_backupFile(paths).path);
+    }
+  }
+
+  static Future<void> deleteBackup(VaultPaths paths) async {
+    final b = _backupFile(paths);
+    if (b.existsSync()) await b.delete();
+  }
+
+  static Future<VaultDescriptor?> loadBackup(VaultPaths paths) async {
+    final b = _backupFile(paths);
+    if (!b.existsSync()) return null;
+    return _loadFromFile(b);
+  }
 
   static VaultDescriptor createFresh() => VaultDescriptor(
         version: _currentVersion,
@@ -43,7 +63,11 @@ class VaultDescriptor {
   }
 
   static Future<VaultDescriptor> load(VaultPaths paths) async {
-    final raw = await _file(paths).readAsString();
+    return _loadFromFile(_file(paths));
+  }
+
+  static Future<VaultDescriptor> _loadFromFile(File file) async {
+    final raw = await file.readAsString();
     final json = jsonDecode(raw) as Map<String, Object?>;
     return VaultDescriptor(
       version: json['version']! as int,

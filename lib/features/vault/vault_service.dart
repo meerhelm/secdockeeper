@@ -82,24 +82,48 @@ class VaultService extends ChangeNotifier {
     if (!VaultDescriptor.exists(_paths)) {
       throw StateError('Vault not initialized');
     }
+    
+    // 1. Try with primary descriptor
     final descriptor = await VaultDescriptor.load(_paths);
+    if (await _tryOpen(masterPassword, descriptor)) {
+      // Success - if a backup existed, it's now stale
+      await VaultDescriptor.deleteBackup(_paths);
+      return true;
+    }
+
+    // 2. Recovery: Try with backup descriptor (in case rotation failed)
+    final backup = await VaultDescriptor.loadBackup(_paths);
+    if (backup != null) {
+      if (await _tryOpen(masterPassword, backup)) {
+        // We recovered using the old salt! 
+        // This means the DB re-key either failed or didn't happen.
+        // We should keep the backup until the next successful rotation attempt.
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  Future<bool> _tryOpen(String password, VaultDescriptor descriptor) async {
     final kek = await Kdf(params: descriptor.kdf).deriveKek(
-      password: masterPassword,
+      password: password,
       salt: descriptor.salt,
     );
     final dbPassword = await _kekToDbPassword(kek);
     try {
-      _vaultDb = await VaultDatabase.open(
+      final vaultDb = await VaultDatabase.open(
         path: _paths.databasePath,
         password: dbPassword,
       );
+      _vaultDb = vaultDb;
+      _kek = kek;
+      _tagHmacKey = await deriveTagHmacKey(kek);
+      notifyListeners();
+      return true;
     } catch (_) {
       return false;
     }
-    _kek = kek;
-    _tagHmacKey = await deriveTagHmacKey(kek);
-    notifyListeners();
-    return true;
   }
 
   void notifyExternalChange() => notifyListeners();
@@ -110,6 +134,12 @@ class VaultService extends ChangeNotifier {
     _kek = null;
     _tagHmacKey = null;
     await v?.close();
+    notifyListeners();
+  }
+
+  void updateKeysAfterRotation(SecretKey newKek, SecretKey newTagHmacKey) {
+    _kek = newKek;
+    _tagHmacKey = newTagHmacKey;
     notifyListeners();
   }
 

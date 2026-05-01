@@ -205,16 +205,11 @@ class _ErrorBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.c;
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: c.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border(
-          top: BorderSide(color: c.border, width: 1),
-          right: BorderSide(color: c.border, width: 1),
-          bottom: BorderSide(color: c.border, width: 1),
-          left: BorderSide(color: c.error, width: 2),
-        ),
+        color: c.errorSoft,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: c.error.withValues(alpha: 0.2), width: 1),
       ),
       child: Row(
         children: [
@@ -224,9 +219,10 @@ class _ErrorBanner extends StatelessWidget {
             child: Text(
               text,
               style: TextStyle(
-                color: c.fg,
-                fontSize: 12.5,
-                height: 1.45,
+                color: c.error,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                height: 1.4,
               ),
             ),
           ),

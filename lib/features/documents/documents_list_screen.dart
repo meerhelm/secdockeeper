@@ -20,6 +20,7 @@ import 'document.dart';
 import 'folder_scope.dart';
 import 'usecases/import_files.dart';
 import 'widgets/document_thumb.dart';
+import '../vault/widgets/change_master_password_dialog.dart';
 
 class DocumentsListScreen extends StatefulWidget {
   const DocumentsListScreen({super.key});
@@ -123,6 +124,17 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
     }
   }
 
+  Future<void> _showChangePassword() async {
+    final cubit = context.read<DocumentsListCubit>();
+    final newPassword = await showDialog<String>(
+      context: context,
+      builder: (ctx) => const ChangeMasterPasswordDialog(),
+    );
+    if (newPassword != null) {
+      await cubit.changeMasterPassword(newPassword);
+    }
+  }
+
   String _formatTotalSize(List<Document> docs) {
     final bytes = docs.fold<int>(0, (a, b) => a + b.size);
     if (bytes < 1024) return '$bytes B';
@@ -173,6 +185,7 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                       onImportShared: _importShared,
                       onExportBackup: () =>
                           context.read<DocumentsListCubit>().exportBackup(),
+                      onChangePassword: _showChangePassword,
                     )),
                     SliverToBoxAdapter(
                       child: Padding(
@@ -270,11 +283,13 @@ class _VaultHeader extends StatelessWidget {
     required this.onLock,
     required this.onImportShared,
     required this.onExportBackup,
+    required this.onChangePassword,
   });
 
   final VoidCallback onLock;
   final VoidCallback onImportShared;
   final VoidCallback onExportBackup;
+  final VoidCallback onChangePassword;
 
   @override
   Widget build(BuildContext context) {
@@ -303,6 +318,7 @@ class _VaultHeader extends StatelessWidget {
           _OverflowMenu(
             onImportShared: onImportShared,
             onExportBackup: onExportBackup,
+            onChangePassword: onChangePassword,
           ),
         ],
       ),
@@ -311,9 +327,14 @@ class _VaultHeader extends StatelessWidget {
 }
 
 class _OverflowMenu extends StatelessWidget {
-  const _OverflowMenu({required this.onImportShared, required this.onExportBackup});
+  const _OverflowMenu({
+    required this.onImportShared,
+    required this.onExportBackup,
+    required this.onChangePassword,
+  });
   final VoidCallback onImportShared;
   final VoidCallback onExportBackup;
+  final VoidCallback onChangePassword;
 
   @override
   Widget build(BuildContext context) {
@@ -322,6 +343,7 @@ class _OverflowMenu extends StatelessWidget {
       onSelected: (v) {
         if (v == 'import_share') onImportShared();
         if (v == 'export_backup') onExportBackup();
+        if (v == 'change_password') onChangePassword();
       },
       offset: const Offset(0, 44),
       tooltip: 'More',
@@ -341,6 +363,14 @@ class _OverflowMenu extends StatelessWidget {
             icon: Icons.download_outlined,
             title: 'Export full backup',
             sub: 'encrypted .zip · password-protected',
+          ),
+        ),
+        PopupMenuItem(
+          value: 'change_password',
+          child: _MenuItem(
+            icon: Icons.key_outlined,
+            title: 'Change master password',
+            sub: 're-encrypts all document keys',
           ),
         ),
       ],
@@ -796,12 +826,16 @@ class _AppSnack {
           Expanded(
             child: Text(
               message,
-              style: TextStyle(color: c.fg, fontSize: 12.5),
+              style: TextStyle(
+                color: error ? c.error : c.fg,
+                fontSize: 12.5,
+                fontWeight: error ? FontWeight.w500 : null,
+              ),
             ),
           ),
         ],
       ),
-      backgroundColor: c.surface2,
+      backgroundColor: error ? c.errorSoft : c.surface2,
       duration: const Duration(seconds: 3),
     );
   }
