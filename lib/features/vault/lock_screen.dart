@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../app/app_scope.dart';
-import 'vault_service.dart';
+import '../../app/tokens.dart';
+import '../../app/widgets/app_buttons.dart';
+import '../../app/widgets/app_field.dart';
+import '../../app/widgets/brand_mark.dart';
+import 'cubit/lock_cubit.dart';
+import 'cubit/lock_state.dart';
 
 class LockScreen extends StatefulWidget {
-  const LockScreen({super.key, required this.vault});
-
-  final VaultService vault;
+  const LockScreen({super.key});
 
   @override
   State<LockScreen> createState() => _LockScreenState();
@@ -14,76 +17,13 @@ class LockScreen extends StatefulWidget {
 
 class _LockScreenState extends State<LockScreen> {
   final _pwd = TextEditingController();
-  bool _busy = false;
   bool _showPwd = false;
-  String? _error;
-  bool _biometricAvailable = false;
-  bool _initialAttempted = false;
+  bool _passwordExpanded = false;
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!_initialAttempted) {
-      _initialAttempted = true;
-      _maybeAutoBiometric();
-    }
-  }
-
-  Future<void> _maybeAutoBiometric() async {
-    final services = AppScope.of(context);
-    final enabled = services.lockSettings.biometricEnabled;
-    final available = await services.biometrics.isAvailable;
-    if (!mounted) return;
-    setState(() => _biometricAvailable = available && enabled);
-    if (available && enabled) {
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-      if (!mounted) return;
-      _doBiometric();
-    }
-  }
-
-  Future<void> _doBiometric() async {
-    final services = AppScope.of(context);
-    if (_busy) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      final ok = await services.biometrics.authenticate(
-        reason: 'Unlock SecDockKeeper',
-      );
-      if (!ok) {
-        if (mounted) setState(() => _busy = false);
-        return;
-      }
-      final pwd = await services.lockSettings.readStoredPassword();
-      if (pwd == null) {
-        if (mounted) {
-          setState(() {
-            _busy = false;
-            _error = 'Stored credentials missing. Enter password.';
-          });
-        }
-        return;
-      }
-      final success = await widget.vault.unlock(pwd);
-      if (!success && mounted) {
-        await services.lockSettings.disableBiometric();
-        setState(() {
-          _busy = false;
-          _biometricAvailable = false;
-          _error = 'Stored password no longer valid. Enter manually.';
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _busy = false;
-          _error = 'Biometric failed: $e';
-        });
-      }
-    }
+  void initState() {
+    super.initState();
+    context.read<LockCubit>().init();
   }
 
   @override
@@ -92,130 +32,205 @@ class _LockScreenState extends State<LockScreen> {
     super.dispose();
   }
 
-  Future<void> _submit() async {
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      final ok = await widget.vault.unlock(_pwd.text);
-      if (!ok && mounted) {
-        setState(() {
-          _error = 'Incorrect password';
-          _busy = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = 'Failed to unlock: $e';
-          _busy = false;
-        });
-      }
-    }
+  void _submit() {
+    context.read<LockCubit>().submit(_pwd.text);
+  }
+
+  void _doBiometric() {
+    context.read<LockCubit>().tryBiometric();
   }
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final c = context.c;
     final t = Theme.of(context).textTheme;
 
-    return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 440),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Container(
-                    width: 72, height: 72,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [scheme.primary, scheme.tertiary],
-                      ),
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: scheme.primary.withValues(alpha: 0.25),
-                          blurRadius: 24,
-                          offset: const Offset(0, 8),
-                        ),
-                      ],
-                    ),
-                    child: Icon(Icons.lock_outline, color: scheme.onPrimary, size: 36),
-                  ),
-                  const SizedBox(height: 28),
-                  Text('Welcome back', style: t.headlineLarge),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Enter your master password to unlock the vault.',
-                    style: t.bodyMedium,
-                  ),
-                  const SizedBox(height: 32),
-                  TextField(
-                    controller: _pwd,
-                    obscureText: !_showPwd,
-                    autofocus: !_biometricAvailable,
-                    onSubmitted: (_) => _submit(),
-                    decoration: InputDecoration(
-                      labelText: 'Master password',
-                      prefixIcon: const Icon(Icons.key_outlined),
-                      suffixIcon: IconButton(
-                        icon: Icon(_showPwd ? Icons.visibility_off_outlined : Icons.visibility_outlined),
-                        onPressed: () => setState(() => _showPwd = !_showPwd),
+    return BlocBuilder<LockCubit, VaultLockState>(
+      builder: (context, state) {
+        // When biometric isn't available, the password field is the primary
+        // affordance, so default it to expanded.
+        final showPasswordField = !state.biometricAvailable || _passwordExpanded;
+
+        return Scaffold(
+          backgroundColor: c.bg,
+          body: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 440),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 12),
+                    const Center(child: BrandMark(size: 40)),
+                    const SizedBox(height: 8),
+                    Center(
+                      child: Text(
+                        'WELCOME BACK',
+                        style: AppMono.label(context, size: 11)
+                            .copyWith(color: c.fg, fontWeight: FontWeight.w600),
                       ),
                     ),
-                  ),
-                  if (_error != null) ...[
-                    const SizedBox(height: 16),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: scheme.errorContainer,
-                        borderRadius: BorderRadius.circular(12),
+                    const SizedBox(height: 24),
+                    Center(
+                      child: Text(
+                        'Locked',
+                        style: t.headlineLarge,
                       ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.error_outline, color: scheme.onErrorContainer, size: 20),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              _error!,
-                              style: t.bodyMedium?.copyWith(color: scheme.onErrorContainer),
+                    ),
+                    const SizedBox(height: 8),
+                    Center(
+                      child: Text(
+                        state.biometricAvailable
+                            ? 'Touch the sensor — or unlock with your master password.'
+                            : 'Enter your master password to unlock the vault.',
+                        textAlign: TextAlign.center,
+                        style: t.bodyMedium,
+                      ),
+                    ),
+                    if (state.biometricAvailable && !showPasswordField) ...[
+                      const SizedBox(height: 28),
+                      _BioRing(onTap: state.busy ? null : _doBiometric),
+                    ],
+                    if (showPasswordField) ...[
+                      const SizedBox(height: 24),
+                      AppField(
+                        label: 'Master password',
+                        controller: _pwd,
+                        obscure: !_showPwd,
+                        autofocus: true,
+                        textInputAction: TextInputAction.done,
+                        prefixIcon: Icons.key_outlined,
+                        suffix: InkWell(
+                          onTap: () => setState(() => _showPwd = !_showPwd),
+                          borderRadius: BorderRadius.circular(8),
+                          child: Padding(
+                            padding: const EdgeInsets.all(6),
+                            child: Icon(
+                              _showPwd
+                                  ? Icons.visibility_off_outlined
+                                  : Icons.visibility_outlined,
+                              size: 16,
+                              color: c.muted,
                             ),
                           ),
-                        ],
+                        ),
+                        onSubmitted: (_) => _submit(),
                       ),
-                    ),
+                    ],
+                    if (state.error != null) ...[
+                      const SizedBox(height: 14),
+                      _ErrorBanner(text: state.error!),
+                    ],
+                    const Spacer(),
+                    if (showPasswordField)
+                      PrimaryActionButton(
+                        label: 'Unlock',
+                        busy: state.busy,
+                        onPressed: _submit,
+                      )
+                    else
+                      GhostActionButton(
+                        label: 'Use master password',
+                        icon: Icons.lock_outline,
+                        onPressed: () =>
+                            setState(() => _passwordExpanded = true),
+                      ),
+                    if (state.biometricAvailable && showPasswordField) ...[
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: state.busy ? null : _doBiometric,
+                        icon: const Icon(Icons.fingerprint, size: 18),
+                        label: const Text('Use biometric'),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
                   ],
-                  const SizedBox(height: 24),
-                  FilledButton(
-                    onPressed: _busy ? null : _submit,
-                    child: _busy
-                        ? const SizedBox(
-                            width: 20, height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2.4),
-                          )
-                        : const Text('Unlock'),
-                  ),
-                  if (_biometricAvailable) ...[
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: _busy ? null : _doBiometric,
-                      icon: const Icon(Icons.fingerprint),
-                      label: const Text('Use biometric'),
-                    ),
-                  ],
-                ],
+                ),
               ),
             ),
           ),
+        );
+      },
+    );
+  }
+}
+
+class _BioRing extends StatelessWidget {
+  const _BioRing({required this.onTap});
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Center(
+      child: Column(
+        children: [
+          InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(999),
+            child: Container(
+              width: 96,
+              height: 96,
+              decoration: BoxDecoration(
+                color: c.accentSoft,
+                shape: BoxShape.circle,
+                border: Border.all(color: c.accentLine, width: 1.5),
+              ),
+              child: Icon(Icons.fingerprint, color: c.accent, size: 38),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Touch to unlock',
+            style: TextStyle(
+              color: c.fg,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text('VAULT LOCKED', style: AppMono.label(context, size: 10)),
+        ],
+      ),
+    );
+  }
+}
+
+class _ErrorBanner extends StatelessWidget {
+  const _ErrorBanner({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border(
+          top: BorderSide(color: c.border, width: 1),
+          right: BorderSide(color: c.border, width: 1),
+          bottom: BorderSide(color: c.border, width: 1),
+          left: BorderSide(color: c.error, width: 2),
         ),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.error_outline, color: c.error, size: 16),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                color: c.fg,
+                fontSize: 12.5,
+                height: 1.45,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

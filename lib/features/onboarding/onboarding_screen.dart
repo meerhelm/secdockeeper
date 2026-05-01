@@ -2,14 +2,18 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../app/app_scope.dart';
-import '../vault/vault_service.dart';
+import '../../app/tokens.dart';
+import '../../app/widgets/app_buttons.dart';
+import '../../app/widgets/app_field.dart';
+import '../../app/widgets/brand_mark.dart';
+import '../../app/widgets/warn_banner.dart';
+import 'cubit/onboarding_cubit.dart';
+import 'cubit/onboarding_state.dart';
 
 class OnboardingScreen extends StatefulWidget {
-  const OnboardingScreen({super.key, required this.vault});
-
-  final VaultService vault;
+  const OnboardingScreen({super.key});
 
   @override
   State<OnboardingScreen> createState() => _OnboardingScreenState();
@@ -19,54 +23,93 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final _formKey = GlobalKey<FormState>();
   final _pwd = TextEditingController();
   final _confirm = TextEditingController();
-  bool _busy = false;
-  String? _error;
   bool _showPwd = false;
   bool _showConfirm = false;
+  int _strength = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _pwd.addListener(_recomputeStrength);
+  }
 
   @override
   void dispose() {
+    _pwd.removeListener(_recomputeStrength);
     _pwd.dispose();
     _confirm.dispose();
     super.dispose();
   }
 
-  Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      await widget.vault.initialize(_pwd.text);
-      await _maybeOfferBiometric(_pwd.text);
-    } catch (e, st) {
-      debugPrint('[onboarding] initialize failed: $e\n$st');
-      if (mounted) {
-        setState(() {
-          _error = 'Failed to initialize vault: $e';
-          _busy = false;
-        });
-      }
-    }
+  void _recomputeStrength() {
+    final v = _pwd.text;
+    var s = 0;
+    if (v.length >= 8) s++;
+    if (v.length >= 12) s++;
+    if (RegExp(r'[A-Z]').hasMatch(v) && RegExp(r'[a-z]').hasMatch(v)) s++;
+    if (RegExp(r'\d').hasMatch(v) || RegExp(r'[^A-Za-z0-9]').hasMatch(v)) s++;
+    if (s != _strength) setState(() => _strength = s);
   }
 
-  Future<void> _maybeOfferBiometric(String password) async {
-    if (!mounted) return;
-    final services = AppScope.of(context);
-    final available = await services.biometrics.isAvailable;
-    if (!available || !mounted) return;
+  String get _strengthLabel => switch (_strength) {
+        0 => 'too short',
+        1 => 'weak',
+        2 => 'fair',
+        3 => 'good',
+        _ => 'strong',
+      };
+
+  void _submit() {
+    if (!_formKey.currentState!.validate()) return;
+    context.read<OnboardingCubit>().create(_pwd.text);
+  }
+
+  Future<void> _restore() async {
+    final cubit = context.read<OnboardingCubit>();
+    final pick = await FilePicker.pickFiles(
+      dialogTitle: 'Pick backup .zip',
+      type: FileType.any,
+    );
+    if (pick == null || pick.files.isEmpty) return;
+    final path = pick.files.single.path;
+    if (path == null) return;
+    await cubit.restore(File(path));
+  }
+
+  Future<void> _onAskBiometric() async {
+    final cubit = context.read<OnboardingCubit>();
+    final c = context.c;
     final accept = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Enable biometric unlock?'),
-        content: const Text(
-          'Use fingerprint or Face ID to quickly unlock the vault. Your master password '
-          'is stored in the device secure enclave and never leaves it.',
+        titlePadding: const EdgeInsets.fromLTRB(22, 22, 22, 4),
+        contentPadding: const EdgeInsets.fromLTRB(22, 8, 22, 16),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: c.accentSoft,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(Icons.fingerprint, size: 26, color: c.accent),
+            ),
+            const SizedBox(height: 14),
+            const Text('Enable biometric unlock?'),
+          ],
+        ),
+        content: Text(
+          'Use fingerprint or Face ID to quickly unlock the vault. Your master '
+          'password is wrapped by the device secure enclave — it never leaves '
+          'it, and we never see it.',
+          style: TextStyle(color: c.muted, fontSize: 13.5, height: 1.55),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
+            style: TextButton.styleFrom(foregroundColor: c.fg),
             child: const Text('Skip'),
           ),
           FilledButton(
@@ -76,183 +119,159 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         ],
       ),
     );
-    if (accept == true) {
-      await services.lockSettings.enableBiometric(password);
-    }
-  }
-
-  Future<void> _restore() async {
-    final services = AppScope.of(context);
-    final messenger = ScaffoldMessenger.of(context);
-    final pick = await FilePicker.pickFiles(
-      dialogTitle: 'Pick backup .zip',
-      type: FileType.any,
-    );
-    if (pick == null || pick.files.isEmpty) return;
-    final path = pick.files.single.path;
-    if (path == null) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      await services.backup.restoreFromArchive(File(path));
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Backup restored. Enter your master password.')),
-      );
-    } catch (e, st) {
-      debugPrint('[onboarding] restore failed: $e\n$st');
-      if (mounted) {
-        setState(() => _error = 'Restore failed: $e');
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+    await cubit.resolveBiometric(accepted: accept ?? false);
   }
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final c = context.c;
     final t = Theme.of(context).textTheme;
+    final messenger = ScaffoldMessenger.of(context);
 
-    return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 440),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _BrandMark(scheme: scheme),
-                    const SizedBox(height: 28),
-                    Text('Create your vault', style: t.headlineLarge),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Choose a master password. It encrypts every document and tag — there is no recovery if forgotten.',
-                      style: t.bodyMedium,
-                    ),
-                    const SizedBox(height: 32),
-                    TextFormField(
-                      controller: _pwd,
-                      obscureText: !_showPwd,
-                      autofocus: true,
-                      textInputAction: TextInputAction.next,
-                      decoration: InputDecoration(
-                        labelText: 'Master password',
-                        prefixIcon: const Icon(Icons.lock_outline),
-                        suffixIcon: IconButton(
-                          icon: Icon(_showPwd ? Icons.visibility_off_outlined : Icons.visibility_outlined),
-                          onPressed: () => setState(() => _showPwd = !_showPwd),
-                        ),
-                      ),
-                      validator: (v) {
-                        if (v == null || v.length < 8) return 'At least 8 characters';
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _confirm,
-                      obscureText: !_showConfirm,
-                      textInputAction: TextInputAction.done,
-                      decoration: InputDecoration(
-                        labelText: 'Confirm password',
-                        prefixIcon: const Icon(Icons.lock_outline),
-                        suffixIcon: IconButton(
-                          icon: Icon(_showConfirm ? Icons.visibility_off_outlined : Icons.visibility_outlined),
-                          onPressed: () => setState(() => _showConfirm = !_showConfirm),
-                        ),
-                      ),
-                      onFieldSubmitted: (_) => _submit(),
-                      validator: (v) {
-                        if (v != _pwd.text) return 'Passwords do not match';
-                        return null;
-                      },
-                    ),
-                    if (_error != null) ...[
-                      const SizedBox(height: 16),
-                      _ErrorBanner(text: _error!),
-                    ],
-                    const SizedBox(height: 24),
-                    FilledButton(
-                      onPressed: _busy ? null : _submit,
-                      child: _busy
-                          ? const SizedBox(
-                              width: 20, height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2.4),
-                            )
-                          : const Text('Create vault'),
-                    ),
-                    const SizedBox(height: 32),
-                    Row(
+    return BlocConsumer<OnboardingCubit, OnboardingState>(
+      listenWhen: (prev, curr) =>
+          prev.askBiometric != curr.askBiometric ||
+          prev.restoreMessage != curr.restoreMessage,
+      listener: (context, state) {
+        if (state.askBiometric) _onAskBiometric();
+        final msg = state.restoreMessage;
+        if (msg != null) {
+          messenger.showSnackBar(SnackBar(content: Text(msg)));
+        }
+      },
+      builder: (context, state) {
+        return Scaffold(
+          backgroundColor: c.bg,
+          body: SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 440),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Expanded(child: Divider(color: scheme.outlineVariant)),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: Text('OR', style: t.bodySmall),
+                        const Padding(
+                          padding: EdgeInsets.only(top: 12),
+                          child: Center(child: BrandMark(size: 72, tile: true)),
                         ),
-                        Expanded(child: Divider(color: scheme.outlineVariant)),
+                        const SizedBox(height: 14),
+                        Center(
+                          child: Text(
+                            'SECDOCKKEEPER',
+                            style: AppMono.label(context, size: 11)
+                                .copyWith(color: c.fg, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        Text('Create your vault', style: t.headlineLarge),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Choose a master password. It encrypts every document and tag locally.',
+                          style: t.bodyMedium,
+                        ),
+                        const SizedBox(height: 20),
+                        const WarnBanner(
+                          title: 'There is no recovery if forgotten.',
+                          body: 'No email reset, no security questions, no support backdoor — by design.',
+                        ),
+                        const SizedBox(height: 24),
+                        AppField(
+                          label: 'Master password',
+                          controller: _pwd,
+                          obscure: !_showPwd,
+                          autofocus: true,
+                          textInputAction: TextInputAction.next,
+                          prefixIcon: Icons.lock_outline,
+                          suffix: _EyeToggle(
+                            shown: _showPwd,
+                            onTap: () => setState(() => _showPwd = !_showPwd),
+                          ),
+                          validator: (v) {
+                            if (v == null || v.length < 8) {
+                              return 'At least 8 characters';
+                            }
+                            return null;
+                          },
+                        ),
+                        AppStrengthMeter(
+                          score: _strength,
+                          leftLabel: 'STRENGTH · $_strengthLabel',
+                          rightLabel: '${_pwd.text.length} CHARS',
+                        ),
+                        const SizedBox(height: 16),
+                        AppField(
+                          label: 'Confirm password',
+                          controller: _confirm,
+                          obscure: !_showConfirm,
+                          textInputAction: TextInputAction.done,
+                          prefixIcon: Icons.lock_outline,
+                          suffix: _EyeToggle(
+                            shown: _showConfirm,
+                            onTap: () =>
+                                setState(() => _showConfirm = !_showConfirm),
+                          ),
+                          onSubmitted: (_) => _submit(),
+                          validator: (v) {
+                            if (v != _pwd.text) {
+                              return 'Passwords do not match';
+                            }
+                            return null;
+                          },
+                        ),
+                        if (state.error != null) ...[
+                          const SizedBox(height: 16),
+                          _ErrorBanner(text: state.error!),
+                        ],
+                        const SizedBox(height: 24),
+                        PrimaryActionButton(
+                          label: 'Create vault',
+                          busy: state.busy,
+                          onPressed: _submit,
+                        ),
+                        const SizedBox(height: 20),
+                        const OrDivider(),
+                        const SizedBox(height: 20),
+                        OutlineActionButton(
+                          label: 'Restore from backup',
+                          icon: Icons.download,
+                          onPressed: state.busy ? null : _restore,
+                        ),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    OutlinedButton.icon(
-                      onPressed: _busy ? null : _restore,
-                      icon: const Icon(Icons.restore_outlined),
-                      label: const Text('Restore from backup'),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
 
-class _BrandMark extends StatelessWidget {
-  const _BrandMark({required this.scheme});
-  final ColorScheme scheme;
+class _EyeToggle extends StatelessWidget {
+  const _EyeToggle({required this.shown, required this.onTap});
+  final bool shown;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Container(
-          width: 72,
-          height: 72,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [scheme.primary, scheme.tertiary],
-            ),
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: scheme.primary.withValues(alpha: 0.25),
-                blurRadius: 24,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Icon(
-            Icons.shield_outlined,
-            color: scheme.onPrimary,
-            size: 36,
-          ),
+    final c = context.c;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.all(6),
+        child: Icon(
+          shown ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+          size: 16,
+          color: c.muted,
         ),
-        const SizedBox(height: 12),
-        Text(
-          'SecDockKeeper',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-      ],
+      ),
     );
   }
 }
@@ -263,24 +282,32 @@ class _ErrorBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final c = context.c;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: scheme.errorContainer,
+        color: c.surface,
         borderRadius: BorderRadius.circular(12),
+        border: Border(
+          top: BorderSide(color: c.border, width: 1),
+          right: BorderSide(color: c.border, width: 1),
+          bottom: BorderSide(color: c.border, width: 1),
+          left: BorderSide(color: c.error, width: 2),
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.error_outline, color: scheme.onErrorContainer, size: 20),
+          Icon(Icons.error_outline, color: c.error, size: 16),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               text,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: scheme.onErrorContainer,
-                  ),
+              style: TextStyle(
+                color: c.fg,
+                fontSize: 12.5,
+                height: 1.45,
+              ),
             ),
           ),
         ],

@@ -1,41 +1,38 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../features/documents/documents_list_screen.dart';
-import '../features/onboarding/onboarding_screen.dart';
-import '../features/vault/lock_screen.dart';
-import '../features/vault/vault_service.dart';
+import '../features/vault/cubit/vault_cubit.dart';
 import 'app_scope.dart';
+import 'router.dart';
 import 'theme.dart';
 
-class SecDockKeeperApp extends StatelessWidget {
+class SecDockKeeperApp extends StatefulWidget {
   const SecDockKeeperApp({super.key, required this.services});
 
   final AppServices services;
 
   @override
+  State<SecDockKeeperApp> createState() => _SecDockKeeperAppState();
+}
+
+class _SecDockKeeperAppState extends State<SecDockKeeperApp> {
+  late final _router = buildAppRouter(vault: widget.services.vault);
+
+  @override
   Widget build(BuildContext context) {
     return AppScope(
-      services: services,
-      child: MaterialApp(
-        title: 'SecDockKeeper',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.light(),
-        darkTheme: AppTheme.dark(),
-        themeMode: ThemeMode.system,
-        builder: (context, child) {
-          return AppScope(services: services, child: child!);
-        },
-        home: ListenableBuilder(
-          listenable: services.vault,
-          builder: (context, _) {
-            switch (services.vault.state) {
-              case VaultState.uninitialized:
-                return OnboardingScreen(vault: services.vault);
-              case VaultState.locked:
-                return LockScreen(vault: services.vault);
-              case VaultState.unlocked:
-                return const DocumentsListScreen();
-            }
+      services: widget.services,
+      child: BlocProvider(
+        create: (_) => VaultCubit(widget.services.vault),
+        child: MaterialApp.router(
+          title: 'SecDockKeeper',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light(),
+          darkTheme: AppTheme.dark(),
+          themeMode: ThemeMode.system,
+          routerConfig: _router,
+          builder: (context, child) {
+            return AppScope(services: widget.services, child: child!);
           },
         ),
       ),

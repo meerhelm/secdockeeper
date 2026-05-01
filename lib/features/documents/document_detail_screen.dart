@@ -1,277 +1,288 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 
-import '../../app/app_scope.dart';
-import '../folders/folder.dart';
+import '../../app/tokens.dart';
+import '../../app/widgets/badges.dart';
+import '../../app/widgets/icon_chip_button.dart';
+import '../../app/widgets/meta_card.dart';
+import '../../app/widgets/row_tile.dart';
+import '../../app/widgets/section_label.dart';
 import '../folders/folder_picker_sheet.dart';
 import '../hidden_tags/hidden_tags_sheet.dart';
-import '../tags/tag.dart';
 import '../tags/tag_picker_sheet.dart';
+import 'cubit/document_detail_cubit.dart';
+import 'cubit/document_detail_state.dart';
 import 'document.dart';
 
-class DocumentDetailScreen extends StatefulWidget {
-  const DocumentDetailScreen({super.key, required this.documentId});
+class DocumentDetailScreen extends StatelessWidget {
+  const DocumentDetailScreen({super.key});
 
-  final int documentId;
-
-  @override
-  State<DocumentDetailScreen> createState() => _DocumentDetailScreenState();
-}
-
-class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
-  Document? _document;
-  bool _busy = false;
-  String? _error;
-  bool _loaded = false;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!_loaded) {
-      _loaded = true;
-      _load();
-    }
-  }
-
-  Future<void> _load() async {
-    final services = AppScope.of(context);
-    final doc = await services.documents.getById(widget.documentId);
-    if (!mounted) return;
-    setState(() => _document = doc);
-  }
-
-  Future<void> _open() async {
-    final services = AppScope.of(context);
-    final doc = _document;
-    if (doc == null) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      await services.opener.open(doc);
-    } catch (e) {
-      setState(() => _error = 'Failed to open: $e');
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _rename() async {
-    final services = AppScope.of(context);
-    final doc = _document;
-    if (doc == null) return;
+  Future<void> _rename(BuildContext context, Document doc) async {
+    final c = context.c;
     final controller = TextEditingController(text: doc.originalName);
     final newName = await showDialog<String>(
       context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: const Text('Rename document'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(
-              labelText: 'New name',
-            ),
-            onSubmitted: (v) => Navigator.pop(ctx, v),
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename document'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'New name'),
+          onSubmitted: (v) => Navigator.pop(ctx, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: TextButton.styleFrom(foregroundColor: c.fg),
+            child: const Text('Cancel'),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, controller.text),
-              child: const Text('Save'),
-            ),
-          ],
-        );
-      },
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
     );
-    if (newName == null) return;
-    final trimmed = newName.trim();
-    if (trimmed.isEmpty || trimmed == doc.originalName) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      await services.documents.rename(doc.id, trimmed);
-      await _load();
-    } catch (e) {
-      if (mounted) setState(() => _error = 'Rename failed: $e');
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+    if (newName == null || !context.mounted) return;
+    await context.read<DocumentDetailCubit>().rename(newName);
   }
 
-  Future<void> _share() async {
-    final services = AppScope.of(context);
-    final doc = _document;
-    if (doc == null) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      final export = await services.share.exportDocument(doc);
-      await services.share.shareViaSystem(export);
-    } catch (e) {
-      if (mounted) setState(() => _error = 'Share failed: $e');
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _delete() async {
-    final services = AppScope.of(context);
-    final doc = _document;
-    if (doc == null) return;
+  Future<void> _confirmDelete(BuildContext context, Document doc) async {
+    final c = context.c;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete document?'),
-        content: Text('${doc.originalName} will be permanently removed.'),
+        contentPadding: const EdgeInsets.fromLTRB(22, 22, 22, 16),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: c.errorSoft,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(Icons.delete_outline, size: 26, color: c.error),
+            ),
+            const SizedBox(height: 14),
+            const Text('Delete document'),
+          ],
+        ),
+        titlePadding: const EdgeInsets.fromLTRB(22, 22, 22, 4),
+        content: RichText(
+          text: TextSpan(
+            style: TextStyle(
+              color: c.muted,
+              fontSize: 13.5,
+              height: 1.55,
+            ),
+            children: [
+              TextSpan(
+                text: doc.originalName,
+                style: TextStyle(color: c.fg, fontWeight: FontWeight.w500),
+              ),
+              const TextSpan(
+                text: ' will be permanently removed from this vault. The file '
+                    'is overwritten in storage; it cannot be recovered.',
+              ),
+            ],
+          ),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            style: TextButton.styleFrom(foregroundColor: c.fg),
+            child: const Text('Cancel'),
+          ),
+          OutlinedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-              foregroundColor: Theme.of(context).colorScheme.onError,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: c.error,
+              side: BorderSide(color: c.error, width: 1),
             ),
             child: const Text('Delete'),
           ),
         ],
       ),
     );
-    if (confirmed != true) return;
-    setState(() => _busy = true);
-    try {
-      await services.vault.blobStore.delete(doc.uuid);
-      await services.documents.deleteById(doc.id);
-      if (mounted) Navigator.of(context).pop();
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = 'Delete failed: $e';
-          _busy = false;
-        });
-      }
-    }
+    if (confirmed != true || !context.mounted) return;
+    await context.read<DocumentDetailCubit>().delete();
   }
 
   @override
   Widget build(BuildContext context) {
-    final doc = _document;
-    final scheme = Theme.of(context).colorScheme;
-    final t = Theme.of(context).textTheme;
+    final c = context.c;
+    final messenger = ScaffoldMessenger.of(context);
 
-    return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, size: 20),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        actions: [
-          if (doc != null) ...[
-            IconButton(
-              icon: const Icon(Icons.drive_file_rename_outline),
-              tooltip: 'Rename',
-              onPressed: _busy ? null : _rename,
+    return BlocConsumer<DocumentDetailCubit, DocumentDetailState>(
+      listenWhen: (prev, curr) =>
+          prev.popRequested != curr.popRequested ||
+          prev.error != curr.error,
+      listener: (context, state) {
+        if (state.popRequested) {
+          context.pop();
+          return;
+        }
+        if (state.error != null) {
+          messenger.showSnackBar(SnackBar(content: Text(state.error!)));
+        }
+      },
+      builder: (context, state) {
+        final doc = state.document;
+        return Scaffold(
+          backgroundColor: c.bg,
+          body: SafeArea(
+            child: Column(
+              children: [
+                _AppBar(
+                  showActions: doc != null,
+                  busy: state.busy,
+                  onBack: () => context.pop(),
+                  onRename: doc == null ? null : () => _rename(context, doc),
+                  onDelete:
+                      doc == null ? null : () => _confirmDelete(context, doc),
+                ),
+                Expanded(
+                  child: doc == null
+                      ? const Center(child: CircularProgressIndicator())
+                      : ListView(
+                          padding: const EdgeInsets.fromLTRB(0, 4, 0, 24),
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              child: _Hero(document: doc),
+                            ),
+                            const SectionLabel('Properties'),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              child: _PropertiesCard(document: doc),
+                            ),
+                            const SectionLabel('Folder'),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              child: RowTileCard(
+                                icon: state.folder == null
+                                    ? Icons.inbox_outlined
+                                    : Icons.folder_outlined,
+                                title: state.folder?.name ?? 'No folder',
+                                subtitle: state.folder == null
+                                    ? null
+                                    : '${state.folder!.documentCount} document${state.folder!.documentCount == 1 ? "" : "s"}',
+                                onTap: () => FolderPickerSheet.show(
+                                  context, doc.id, doc.folderId,
+                                ),
+                              ),
+                            ),
+                            const SectionLabel('Tags'),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              child: _TagsCard(state: state),
+                            ),
+                            const SectionLabel('Actions'),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              child: RowTileGroup(
+                                children: [
+                                  RowTile(
+                                    icon: Icons.open_in_new,
+                                    title: 'Open decrypted',
+                                    subtitle:
+                                        'Decrypt to a temporary file and open in the system viewer.',
+                                    primary: true,
+                                    onTap: state.busy
+                                        ? null
+                                        : () => context
+                                            .read<DocumentDetailCubit>()
+                                            .open(),
+                                  ),
+                                  RowTile(
+                                    icon: Icons.share_outlined,
+                                    title: 'Share encrypted',
+                                    subtitle:
+                                        'Export blob + key file via the system share sheet.',
+                                    onTap: state.busy
+                                        ? null
+                                        : () => context
+                                            .read<DocumentDetailCubit>()
+                                            .share(),
+                                  ),
+                                  RowTile(
+                                    icon: Icons.visibility_off_outlined,
+                                    title: 'Hidden tags',
+                                    subtitle:
+                                        'Manage deniable tags — revealed only by exact-name search.',
+                                    onTap: () => HiddenTagsSheet.show(
+                                      context, doc.id,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (doc.ocrText != null && doc.ocrText!.isNotEmpty) ...[
+                              const SectionLabel('Recognized text · OCR'),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                                child: _OcrBlock(text: doc.ocrText!),
+                              ),
+                            ],
+                          ],
+                        ),
+                ),
+              ],
             ),
-            IconButton(
-              icon: const Icon(Icons.delete_outline),
-              tooltip: 'Delete',
-              onPressed: _busy ? null : _delete,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _AppBar extends StatelessWidget {
+  const _AppBar({
+    required this.showActions,
+    required this.busy,
+    required this.onBack,
+    required this.onRename,
+    required this.onDelete,
+  });
+
+  final bool showActions;
+  final bool busy;
+  final VoidCallback onBack;
+  final VoidCallback? onRename;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+      child: Row(
+        children: [
+          IconChipButton(
+            icon: Icons.arrow_back_ios_new,
+            onTap: onBack,
+            ghost: true,
+          ),
+          const Spacer(),
+          if (showActions) ...[
+            IconChipButton(
+              icon: Icons.drive_file_rename_outline,
+              onTap: busy ? null : onRename,
+              ghost: true,
+              tooltip: 'Rename',
             ),
             const SizedBox(width: 4),
+            IconChipButton(
+              icon: Icons.delete_outline,
+              onTap: busy ? null : onDelete,
+              ghost: true,
+              tooltip: 'Delete',
+            ),
           ],
         ],
       ),
-      body: doc == null
-          ? const Center(child: CircularProgressIndicator())
-          : SafeArea(
-              top: false,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-                children: [
-                  _Hero(document: doc),
-                  const SizedBox(height: 24),
-                  _MetaCard(document: doc),
-                  const SizedBox(height: 16),
-                  _SectionHeader(title: 'Folder'),
-                  const SizedBox(height: 8),
-                  _FolderBlock(document: doc, onChanged: _load),
-                  const SizedBox(height: 20),
-                  _SectionHeader(title: 'Tags'),
-                  const SizedBox(height: 8),
-                  _TagsBlock(documentId: doc.id),
-                  const SizedBox(height: 20),
-                  _SectionHeader(title: 'Actions'),
-                  const SizedBox(height: 8),
-                  _ActionGroup(
-                    children: [
-                      _ActionTile(
-                        icon: Icons.open_in_new,
-                        title: 'Open decrypted',
-                        subtitle: 'Decrypt to a temporary file and open in system viewer',
-                        onTap: _busy ? null : _open,
-                        color: scheme.primary,
-                      ),
-                      _ActionTile(
-                        icon: Icons.ios_share,
-                        title: 'Share encrypted',
-                        subtitle: 'Export blob + key file via system share sheet',
-                        onTap: _busy ? null : _share,
-                        color: scheme.tertiary,
-                      ),
-                      _ActionTile(
-                        icon: Icons.visibility_off_outlined,
-                        title: 'Hidden tags',
-                        subtitle: 'Manage deniable tags revealed only by name match',
-                        onTap: () => HiddenTagsSheet.show(context, doc.id),
-                        color: scheme.secondary,
-                      ),
-                    ],
-                  ),
-                  if (doc.ocrText != null && doc.ocrText!.isNotEmpty) ...[
-                    const SizedBox(height: 24),
-                    _SectionHeader(title: 'Recognized text'),
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: scheme.surfaceContainer,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Text(doc.ocrText!, style: t.bodyMedium),
-                    ),
-                  ],
-                  if (_error != null) ...[
-                    const SizedBox(height: 16),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: scheme.errorContainer,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.error_outline, color: scheme.onErrorContainer, size: 20),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              _error!,
-                              style: t.bodyMedium?.copyWith(color: scheme.onErrorContainer),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
     );
   }
 }
@@ -282,51 +293,64 @@ class _Hero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final t = Theme.of(context).textTheme;
-    final accent = _heroAccent(document.mimeType, scheme);
-
+    final mime = document.mimeType;
+    final palette = _palette(mime);
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [accent.start, accent.end],
+          begin: const Alignment(-0.7, -0.9),
+          end: const Alignment(0.9, 0.9),
+          colors: palette,
+          stops: const [0, 0.55, 1],
         ),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
         children: [
           Container(
-            width: 56, height: 56,
+            width: 56,
+            height: 56,
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.18),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(_iconFor(document.mimeType), color: Colors.white, size: 28),
+            child: Icon(_icon(mime), color: Colors.white, size: 24),
           ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   document.originalName,
-                  style: t.titleLarge?.copyWith(color: Colors.white),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.31,
+                    height: 1.15,
+                  ),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 8),
                 Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.lock_outline,
-                        size: 14, color: Colors.white.withValues(alpha: 0.85)),
-                    const SizedBox(width: 4),
+                        size: 11,
+                        color: Colors.white.withValues(alpha: 0.85)),
+                    const SizedBox(width: 5),
                     Text(
-                      'AES-256-GCM • encrypted at rest',
-                      style: t.bodySmall?.copyWith(
+                      'AES-256-GCM · ENCRYPTED AT REST',
+                      style: AppMono.of(
+                        context,
+                        size: 10,
                         color: Colors.white.withValues(alpha: 0.85),
+                        letterSpacing: 1.4,
+                        weight: FontWeight.w500,
                       ),
                     ),
                   ],
@@ -339,7 +363,7 @@ class _Hero extends StatelessWidget {
     );
   }
 
-  IconData _iconFor(String? mime) {
+  static IconData _icon(String? mime) {
     if (mime == null) return Icons.insert_drive_file_outlined;
     if (mime.startsWith('image/')) return Icons.image_outlined;
     if (mime == 'application/pdf') return Icons.picture_as_pdf_outlined;
@@ -347,338 +371,182 @@ class _Hero extends StatelessWidget {
     return Icons.insert_drive_file_outlined;
   }
 
-  _HeroAccent _heroAccent(String? mime, ColorScheme s) {
-    if (mime != null && mime == 'application/pdf') {
-      return _HeroAccent(const Color(0xFFE03131), const Color(0xFFFA5252));
+  static List<Color> _palette(String? mime) {
+    if (mime == 'application/pdf') {
+      return const [Color(0xFF3A1010), Color(0xFF6E2323), Color(0xFFC54343)];
     }
     if (mime != null && mime.startsWith('image/')) {
-      return _HeroAccent(const Color(0xFF7950F2), const Color(0xFFD6336C));
+      return const [Color(0xFF2C1230), Color(0xFF5B1F3D), Color(0xFFB34A4D)];
     }
-    return _HeroAccent(s.primary, s.tertiary);
+    if (mime != null && mime.startsWith('text/')) {
+      return const [Color(0xFF1F2D2D), Color(0xFF2A4A4A), Color(0xFF6FA0A0)];
+    }
+    return const [Color(0xFF1F2A40), Color(0xFF2C3A5A), Color(0xFF6B83B5)];
   }
 }
 
-class _HeroAccent {
-  _HeroAccent(this.start, this.end);
-  final Color start;
-  final Color end;
-}
-
-class _MetaCard extends StatelessWidget {
-  const _MetaCard({required this.document});
+class _PropertiesCard extends StatelessWidget {
+  const _PropertiesCard({required this.document});
   final Document document;
 
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainer,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        children: [
-          _MetaRow(label: 'MIME', value: document.mimeType ?? 'unknown'),
-          _MetaDivider(),
-          _MetaRow(label: 'Size', value: _formatSize(document.size)),
-          _MetaDivider(),
-          _MetaRow(label: 'Created', value: _formatDate(document.createdAt)),
-          if (document.classification != null) ...[
-            _MetaDivider(),
-            _MetaRow(label: 'Class', value: document.classification!),
-          ],
-        ],
-      ),
-    );
-  }
-
-  String _formatSize(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    if (bytes < 1024 * 1024 * 1024) return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
-    return '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(1)} GB';
+  String _formatBytes(int bytes) {
+    String pretty;
+    if (bytes < 1024) {
+      pretty = '$bytes B';
+    } else if (bytes < 1024 * 1024) {
+      pretty = '${(bytes / 1024).toStringAsFixed(1)} KB';
+    } else if (bytes < 1024 * 1024 * 1024) {
+      pretty = '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+    } else {
+      pretty = '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(1)} GB';
+    }
+    final formatted = bytes
+        .toString()
+        .replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+$)'), (m) => '${m[1]},');
+    return '$formatted bytes · $pretty';
   }
 
   String _formatDate(DateTime d) {
     final l = d.toLocal();
     String pad(int n) => n.toString().padLeft(2, '0');
-    return '${l.year}-${pad(l.month)}-${pad(l.day)} ${pad(l.hour)}:${pad(l.minute)}';
+    final tz = l.timeZoneOffset;
+    final tzSign = tz.isNegative ? '-' : '+';
+    final tzHours = tz.inHours.abs();
+    return '${l.year}-${pad(l.month)}-${pad(l.day)} · '
+        '${pad(l.hour)}:${pad(l.minute)} GMT$tzSign$tzHours';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MetaCard(
+      rows: [
+        MetaRow(label: 'MIME', value: document.mimeType ?? 'unknown'),
+        MetaRow(label: 'Size', value: _formatBytes(document.size)),
+        MetaRow(label: 'Created', value: _formatDate(document.createdAt)),
+        if (document.classification != null)
+          MetaRow(
+            label: 'Class',
+            value: '',
+            trailing: MetaPill('${document.classification} · auto'),
+          ),
+      ],
+    );
   }
 }
 
-class _MetaRow extends StatelessWidget {
-  const _MetaRow({required this.label, required this.value});
-  final String label;
-  final String value;
+class _TagsCard extends StatelessWidget {
+  const _TagsCard({required this.state});
+  final DocumentDetailState state;
+
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(
+    final c = context.c;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: c.border, width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 80,
-            child: Text(label.toUpperCase(),
-                style: t.bodySmall?.copyWith(
-                  letterSpacing: 0.6,
-                  fontWeight: FontWeight.w600,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                )),
+          if (state.tags.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Text(
+                'No tags assigned',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            )
+          else
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final t in state.tags)
+                  TagChip(
+                    label: t.name,
+                    onDeleted: () => context
+                        .read<DocumentDetailCubit>()
+                        .unassignTag(t.id),
+                  ),
+              ],
+            ),
+          const SizedBox(height: 10),
+          InkWell(
+            onTap: () => TagPickerSheet.show(context, state.document!.id),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.add, size: 14, color: c.accent),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Manage tags',
+                    style: TextStyle(
+                      color: c.accent,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-          const SizedBox(width: 12),
-          Expanded(child: Text(value, style: t.bodyMedium)),
         ],
       ),
     );
   }
 }
 
-class _MetaDivider extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Divider(
-      height: 1,
-      color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.4),
-    );
-  }
-}
+class _OcrBlock extends StatelessWidget {
+  const _OcrBlock({required this.text});
+  final String text;
 
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.title});
-  final String title;
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Text(
-        title.toUpperCase(),
-        style: t.bodySmall?.copyWith(
-          letterSpacing: 0.8,
-          fontWeight: FontWeight.w700,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
+    final c = context.c;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: c.border, width: 1),
       ),
-    );
-  }
-}
-
-class _FolderBlock extends StatelessWidget {
-  const _FolderBlock({required this.document, required this.onChanged});
-  final Document document;
-  final Future<void> Function() onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final services = AppScope.of(context);
-    final scheme = Theme.of(context).colorScheme;
-    final t = Theme.of(context).textTheme;
-
-    return StreamBuilder<void>(
-      stream: services.folders.changes,
-      builder: (context, _) {
-        final futureFolder = document.folderId == null
-            ? Future<Folder?>.value(null)
-            : services.folders.getById(document.folderId!);
-        return FutureBuilder<Folder?>(
-          future: futureFolder,
-          builder: (context, snap) {
-            final folder = snap.data;
-            return Material(
-              color: scheme.surfaceContainer,
-              borderRadius: BorderRadius.circular(14),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(14),
-                onTap: () async {
-                  await FolderPickerSheet.show(
-                    context, document.id, document.folderId);
-                  await onChanged();
-                },
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 40, height: 40,
-                        decoration: BoxDecoration(
-                          color: (folder == null
-                                  ? scheme.surfaceContainerHighest
-                                  : scheme.primaryContainer),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Icon(
-                          folder == null ? Icons.inbox_outlined : Icons.folder_outlined,
-                          color: folder == null
-                              ? scheme.onSurfaceVariant
-                              : scheme.onPrimaryContainer,
-                          size: 20,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          folder?.name ?? 'No folder',
-                          style: t.titleSmall,
-                        ),
-                      ),
-                      Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
-                    ],
+      constraints: const BoxConstraints(maxHeight: 220),
+      child: Stack(
+        children: [
+          SingleChildScrollView(
+            child: Text(
+              text,
+              style: AppMono.of(
+                context,
+                size: 11.5,
+                color: c.fg,
+              ).copyWith(height: 1.55),
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: IgnorePointer(
+              child: Container(
+                height: 36,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [c.surface.withValues(alpha: 0), c.surface],
                   ),
                 ),
               ),
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-class _TagsBlock extends StatelessWidget {
-  const _TagsBlock({required this.documentId});
-  final int documentId;
-
-  @override
-  Widget build(BuildContext context) {
-    final services = AppScope.of(context);
-    final scheme = Theme.of(context).colorScheme;
-
-    return StreamBuilder<void>(
-      stream: services.tags.changes,
-      builder: (context, _) {
-        return FutureBuilder<List<Tag>>(
-          future: services.tags.forDocument(documentId),
-          builder: (context, snap) {
-            final tags = snap.data ?? const <Tag>[];
-            return Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainer,
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (tags.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                      child: Text(
-                        'No tags assigned',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                    )
-                  else
-                    Wrap(
-                      spacing: 6, runSpacing: 6,
-                      children: [
-                        for (final t in tags)
-                          Chip(
-                            label: Text(t.name),
-                            onDeleted: () => services.tags.unassign(documentId, t.id),
-                            deleteIconColor: scheme.onSurfaceVariant,
-                            backgroundColor: scheme.primaryContainer,
-                            labelStyle: TextStyle(color: scheme.onPrimaryContainer),
-                          ),
-                      ],
-                    ),
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton.icon(
-                      onPressed: () => TagPickerSheet.show(context, documentId),
-                      icon: const Icon(Icons.add, size: 18),
-                      label: const Text('Manage tags'),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-class _ActionGroup extends StatelessWidget {
-  const _ActionGroup({required this.children});
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainer,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        children: [
-          for (var i = 0; i < children.length; i++) ...[
-            children[i],
-            if (i != children.length - 1)
-              Divider(
-                height: 1,
-                indent: 64,
-                color: scheme.outlineVariant.withValues(alpha: 0.4),
-              ),
-          ],
+            ),
+          ),
         ],
-      ),
-    );
-  }
-}
-
-class _ActionTile extends StatelessWidget {
-  const _ActionTile({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-    required this.color,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback? onTap;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final t = Theme.of(context).textTheme;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            Container(
-              width: 40, height: 40,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, color: color, size: 20),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: t.titleSmall),
-                  const SizedBox(height: 2),
-                  Text(subtitle, style: t.bodySmall, maxLines: 2),
-                ],
-              ),
-            ),
-            Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
-          ],
-        ),
       ),
     );
   }

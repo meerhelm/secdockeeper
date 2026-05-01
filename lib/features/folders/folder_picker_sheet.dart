@@ -1,25 +1,45 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../app/app_scope.dart';
+import '../../app/tokens.dart';
+import '../../app/widgets/app_field.dart';
+import 'cubit/folder_picker_cubit.dart';
+import 'cubit/folder_picker_state.dart';
 import 'folder.dart';
+import 'usecases/assign_document_to_folder.dart';
+import 'usecases/create_folder.dart';
+import 'usecases/delete_folder.dart';
+import 'usecases/list_folders.dart';
+import 'usecases/rename_folder.dart';
+import 'usecases/watch_folder_changes.dart';
 
 class FolderPickerSheet extends StatefulWidget {
-  const FolderPickerSheet({
-    super.key,
-    required this.documentId,
-    required this.currentFolderId,
-  });
+  const FolderPickerSheet({super.key, required this.currentFolderId});
 
-  final int documentId;
   final int? currentFolderId;
 
-  static Future<void> show(BuildContext context, int documentId, int? currentFolderId) {
+  static Future<void> show(
+    BuildContext context,
+    int documentId,
+    int? currentFolderId,
+  ) {
+    final services = AppScope.of(context);
     return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (_) => FolderPickerSheet(
-        documentId: documentId,
-        currentFolderId: currentFolderId,
+      builder: (_) => BlocProvider(
+        create: (_) => FolderPickerCubit(
+          documentId: documentId,
+          listFolders: ListFoldersUseCase(services.folders),
+          createFolder: CreateFolderUseCase(services.folders),
+          assignDocumentToFolder:
+              AssignDocumentToFolderUseCase(services.folders),
+          renameFolder: RenameFolderUseCase(services.folders),
+          deleteFolder: DeleteFolderUseCase(services.folders),
+          watchFolderChanges: WatchFolderChangesUseCase(services.folders),
+        ),
+        child: FolderPickerSheet(currentFolderId: currentFolderId),
       ),
     );
   }
@@ -30,32 +50,6 @@ class FolderPickerSheet extends StatefulWidget {
 
 class _FolderPickerSheetState extends State<FolderPickerSheet> {
   final _input = TextEditingController();
-  Future<List<Folder>>? _folders;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _folders ??= AppScope.of(context).folders.listAll();
-  }
-
-  void _refresh() {
-    setState(() => _folders = AppScope.of(context).folders.listAll());
-  }
-
-  Future<void> _create() async {
-    final name = _input.text.trim();
-    if (name.isEmpty) return;
-    final services = AppScope.of(context);
-    final folder = await services.folders.create(name);
-    await services.folders.assignDocument(widget.documentId, folder.id);
-    _input.clear();
-    if (mounted) Navigator.of(context).pop();
-  }
-
-  Future<void> _select(int? folderId) async {
-    await AppScope.of(context).folders.assignDocument(widget.documentId, folderId);
-    if (mounted) Navigator.of(context).pop();
-  }
 
   @override
   void dispose() {
@@ -63,92 +57,8 @@ class _FolderPickerSheetState extends State<FolderPickerSheet> {
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
-    final scheme = Theme.of(context).colorScheme;
-
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.only(
-          left: 20, right: 20, top: 8,
-          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('Move to folder', style: t.titleLarge),
-            const SizedBox(height: 12),
-            FutureBuilder<List<Folder>>(
-              future: _folders,
-              builder: (context, snap) {
-                final list = snap.data;
-                if (list == null) {
-                  return const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Center(child: CircularProgressIndicator()),
-                  );
-                }
-                return ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxHeight: MediaQuery.of(context).size.height * 0.45,
-                  ),
-                  child: ListView(
-                    shrinkWrap: true,
-                    children: [
-                      _FolderTile(
-                        icon: Icons.inbox_outlined,
-                        title: 'No folder',
-                        selected: widget.currentFolderId == null,
-                        onTap: () => _select(null),
-                      ),
-                      for (final f in list)
-                        _FolderTile(
-                          icon: Icons.folder_outlined,
-                          title: f.name,
-                          subtitle: '${f.documentCount} item${f.documentCount == 1 ? "" : "s"}',
-                          selected: widget.currentFolderId == f.id,
-                          onTap: () => _select(f.id),
-                          onLongPress: () => _showFolderActions(f),
-                        ),
-                    ],
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 12),
-            Text('Create new folder',
-                style: t.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.6,
-                  color: scheme.onSurfaceVariant,
-                )),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _input,
-                    decoration: const InputDecoration(
-                      hintText: 'Folder name',
-                      prefixIcon: Icon(Icons.create_new_folder_outlined),
-                    ),
-                    onSubmitted: (_) => _create(),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                FilledButton(onPressed: _create, child: const Text('Create')),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showFolderActions(Folder folder) async {
-    final services = AppScope.of(context);
+  Future<void> _showFolderActions(BuildContext context, Folder folder) async {
+    final cubit = context.read<FolderPickerCubit>();
     final action = await showModalBottomSheet<String>(
       context: context,
       builder: (ctx) => SafeArea(
@@ -163,14 +73,16 @@ class _FolderPickerSheetState extends State<FolderPickerSheet> {
             ListTile(
               leading: const Icon(Icons.delete_outline),
               title: const Text('Delete folder'),
-              subtitle: const Text('Documents inside will be moved to "No folder"'),
+              subtitle: const Text(
+                  'Documents inside will be moved to "No folder"'),
               onTap: () => Navigator.pop(ctx, 'delete'),
             ),
           ],
         ),
       ),
     );
-    if (!mounted || action == null) return;
+    if (!context.mounted || action == null) return;
+    final c = context.c;
     if (action == 'rename') {
       final ctl = TextEditingController(text: folder.name);
       final newName = await showDialog<String>(
@@ -184,7 +96,11 @@ class _FolderPickerSheetState extends State<FolderPickerSheet> {
             onSubmitted: (v) => Navigator.pop(ctx, v),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              style: TextButton.styleFrom(foregroundColor: c.fg),
+              child: const Text('Cancel'),
+            ),
             FilledButton(
               onPressed: () => Navigator.pop(ctx, ctl.text),
               child: const Text('Save'),
@@ -192,21 +108,131 @@ class _FolderPickerSheetState extends State<FolderPickerSheet> {
           ],
         ),
       );
-      if (newName != null && newName.trim().isNotEmpty && newName.trim() != folder.name) {
-        await services.folders.rename(folder.id, newName.trim());
+      if (newName != null &&
+          newName.trim().isNotEmpty &&
+          newName.trim() != folder.name) {
+        await cubit.rename(id: folder.id, newName: newName.trim());
       }
     } else if (action == 'delete') {
-      await services.folders.delete(folder.id);
+      await cubit.delete(folder.id);
     }
-    _refresh();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return BlocConsumer<FolderPickerCubit, FolderPickerState>(
+      listenWhen: (prev, curr) => prev.popRequested != curr.popRequested,
+      listener: (context, state) {
+        if (state.popRequested) Navigator.of(context).pop();
+      },
+      builder: (context, state) {
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 20, right: 20, top: 4,
+              bottom: MediaQuery.viewInsetsOf(context).bottom + 16,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Text(
+                    'Move to folder',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.sizeOf(context).height * 0.42,
+                  ),
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      _FolderRow(
+                        icon: Icons.inbox_outlined,
+                        title: 'No folder',
+                        subtitle: null,
+                        selected: widget.currentFolderId == null,
+                        onTap: () =>
+                            context.read<FolderPickerCubit>().select(null),
+                      ),
+                      for (final f in state.folders)
+                        _FolderRow(
+                          icon: Icons.folder_outlined,
+                          title: f.name,
+                          subtitle: '${f.documentCount} item${f.documentCount == 1 ? "" : "s"}',
+                          selected: widget.currentFolderId == f.id,
+                          onTap: () => context
+                              .read<FolderPickerCubit>()
+                              .select(f.id),
+                          onLongPress: () => _showFolderActions(context, f),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text('CREATE NEW FOLDER', style: AppMono.label(context)),
+                const SizedBox(height: 10),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: AppField(
+                        controller: _input,
+                        hintText: 'Folder name',
+                        prefixIcon: Icons.create_new_folder_outlined,
+                        onSubmitted: (v) => context
+                            .read<FolderPickerCubit>()
+                            .createAndAssign(v),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    SizedBox(
+                      height: 50,
+                      child: FilledButton(
+                        onPressed: state.busy
+                            ? null
+                            : () => context
+                                .read<FolderPickerCubit>()
+                                .createAndAssign(_input.text),
+                        style: FilledButton.styleFrom(
+                          minimumSize: const Size(0, 50),
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          textStyle: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        child: const Text('Create'),
+                      ),
+                    ),
+                  ],
+                ),
+                if (state.error != null) ...[
+                  const SizedBox(height: 10),
+                  Text(state.error!,
+                      style: TextStyle(color: c.error, fontSize: 12)),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 }
 
-class _FolderTile extends StatelessWidget {
-  const _FolderTile({
+class _FolderRow extends StatelessWidget {
+  const _FolderRow({
     required this.icon,
     required this.title,
-    this.subtitle,
+    required this.subtitle,
     required this.selected,
     required this.onTap,
     this.onLongPress,
@@ -221,47 +247,63 @@ class _FolderTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Material(
-        color: selected ? scheme.primaryContainer : Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: onTap,
-          onLongPress: onLongPress,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            child: Row(
-              children: [
-                Icon(icon,
-                    color: selected ? scheme.onPrimaryContainer : scheme.onSurfaceVariant),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                              color: selected
-                                  ? scheme.onPrimaryContainer
-                                  : scheme.onSurface,
-                              fontWeight: FontWeight.w500,
-                            ),
-                      ),
-                      if (subtitle != null)
-                        Text(subtitle!,
-                            style: Theme.of(context).textTheme.bodySmall),
-                    ],
-                  ),
-                ),
-                if (selected)
-                  Icon(Icons.check, color: scheme.onPrimaryContainer, size: 20),
-              ],
-            ),
+    final c = context.c;
+    return InkWell(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(color: c.border, width: 1),
           ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: c.surface2,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                icon,
+                size: 16,
+                color: selected ? c.accent : c.fg,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: selected ? c.accent : c.fg,
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 1),
+                    Text(
+                      subtitle!,
+                      style: AppMono.of(
+                        context,
+                        size: 12,
+                        color: c.muted,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (selected)
+              Icon(Icons.check, size: 16, color: c.accent),
+          ],
         ),
       ),
     );
