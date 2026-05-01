@@ -121,6 +121,8 @@ Planned features that are not yet implemented:
 - Stealth vault — second password reveals an alternate document set
 - Web build with an alternative storage layer (drift + sqlite3 wasm)
 
+See the full [ROADMAP.md](ROADMAP.md) for detailed functional suggestions and cryptographic security plans.
+
 ## License
 
 No license selected yet. Code is private until a license is chosen.

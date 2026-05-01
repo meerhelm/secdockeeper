@@ -1,7 +1,7 @@
-# Roadmap — functional suggestions
+# ROADMAP — functional suggestions
 
 A categorized list of features that could be added to SecDockKeeper. Items
-already on the root [`README.md`](../README.md#roadmap) roadmap are marked
+already on the root [`README.md`](README.md#roadmap) roadmap are marked
 *(roadmap)*; the rest are net-new suggestions.
 
 This page is intentionally just a list of ideas — not commitments. Before
@@ -23,7 +23,7 @@ architecture / security docs.
    separate from the master password (PIN unwraps a sealed master).
 5. **Panic wipe** — N failed unlocks (configurable) deletes `vault.json` +
    `vault.db` + `blobs/`. Off by default; opt-in from settings.
-6. **iOS background blur overlay** — [`security.md`](security.md#anti-snoop--lifecycle-defaults)
+6. **iOS background blur overlay** — [`docs/security.md`](docs/security.md#anti-snoop--lifecycle-defaults)
    already flags this as a gap on iOS; trivial to add via lifecycle observer.
 7. **Memory hygiene pass** — best-effort zeroization on `vault.lock()`
    (overwrite `Uint8List`s for KEK / tag-HMAC / DEK before drop).
@@ -38,6 +38,20 @@ architecture / security docs.
     must be excluded from the picker and only reachable by typing its
     password on a single-vault-style lock screen. Pick the design intent
     before building either.
+49. **Cryptographic Key Separation (HKDF)** — Use HKDF-SHA256 to derive
+    distinct keys for SQLCipher and for DEK wrapping from the master KEK.
+    Currently, the same key is reused for both, violating the "one key for
+    one purpose" principle.
+50. **Binding Ciphertexts via AAD** — Pass the document UUID as Additional
+    Authenticated Data (AAD) when encrypting/decrypting blobs. This prevents
+    "cut-and-paste" attacks where encrypted blobs could be swapped between
+    records in the database.
+51. **Increase Argon2id Memory Default** — Bump the default memory parameter
+    from 19MB to 64MB (or higher) to significantly increase the cost of
+    offline brute-force attacks on modern mobile hardware.
+52. **ChaCha20-Poly1305 Option** — Evaluate or offer ChaCha20-Poly1305 as an
+    alternative to AES-GCM for better performance on mobile devices that
+    lack hardware AES acceleration.
 
 ## Document acquisition
 
