@@ -1,4 +1,4 @@
-package meerhelm.secdockeeper
+package com.meerhelm.secdockeeper
 
 import android.os.Bundle
 import android.view.WindowManager

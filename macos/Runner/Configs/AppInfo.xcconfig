@@ -8,7 +8,7 @@
 PRODUCT_NAME = secdockeeper
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = meerhelm.secdockeeper
+PRODUCT_BUNDLE_IDENTIFIER = com.meerhelm.secdockeeper
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 meerhelm. All rights reserved.
