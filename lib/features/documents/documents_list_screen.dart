@@ -51,11 +51,27 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
         await cubit.scanDocument();
       case _AddAction.importFile:
         await _pickAndImportFiles(cubit);
+      case _AddAction.fromGallery:
+        await _pickAndImportFromGallery(cubit);
     }
   }
 
   Future<void> _pickAndImportFiles(DocumentsListCubit cubit) async {
     final result = await FilePicker.pickFiles(
+      withData: true,
+      allowMultiple: true,
+    );
+    if (result == null) return;
+    final inputs = <ImportFileInput>[
+      for (final f in result.files)
+        (name: f.name, bytes: f.bytes, path: f.path),
+    ];
+    await cubit.importFiles(inputs);
+  }
+
+  Future<void> _pickAndImportFromGallery(DocumentsListCubit cubit) async {
+    final result = await FilePicker.pickFiles(
+      type: FileType.image,
       withData: true,
       allowMultiple: true,
     );
@@ -877,7 +893,7 @@ class _CheckRow extends StatelessWidget {
   }
 }
 
-enum _AddAction { scan, importFile }
+enum _AddAction { scan, importFile, fromGallery }
 
 class _AddSheet extends StatelessWidget {
   const _AddSheet();
@@ -896,6 +912,13 @@ class _AddSheet extends StatelessWidget {
               title: 'Scan document',
               subtitle: 'Camera · auto edge detection · multi-page PDF',
               onTap: () => Navigator.pop(context, _AddAction.scan),
+            ),
+            Divider(height: 1, color: c.border),
+            _AddSheetTile(
+              icon: Icons.photo_library_outlined,
+              title: 'Add from gallery',
+              subtitle: 'Pick photos from your device gallery',
+              onTap: () => Navigator.pop(context, _AddAction.fromGallery),
             ),
             Divider(height: 1, color: c.border),
             _AddSheetTile(
