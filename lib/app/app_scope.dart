@@ -9,6 +9,7 @@ import '../features/folders/folder_repository.dart';
 import '../features/hidden_tags/hidden_tag_repository.dart';
 import '../features/ocr/auto_classifier.dart';
 import '../features/ocr/ocr_service.dart';
+import '../features/scanner/document_scanner_service.dart';
 import '../features/security/auto_lock_controller.dart';
 import '../features/security/biometric_service.dart';
 import '../features/security/lock_settings.dart';
@@ -41,6 +42,7 @@ class AppServices {
   );
   late final DocumentOpenService opener =
       DocumentOpenService(vault: vault, repository: documents);
+  late final DocumentScannerService scanner = DocumentScannerService(ocr: ocr);
   late final ShareService share = ShareService(opener: opener, importer: importer);
   late final BackupService backup = BackupService(vault: vault, paths: paths);
   late final BiometricService biometrics = BiometricService();

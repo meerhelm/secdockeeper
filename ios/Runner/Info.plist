@@ -28,6 +28,8 @@
 	<true/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>SecDockKeeper uses the camera to scan paper documents directly into your encrypted vault.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>SecDockKeeper uses Face ID to unlock your vault without typing the master password.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

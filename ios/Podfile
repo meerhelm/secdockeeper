@@ -45,6 +45,12 @@ post_install do |installer|
       config.build_settings['DEPLOYMENT_POSTPROCESSING'] = 'NO'
       config.build_settings['STRIP_INSTALLED_PRODUCT'] = 'NO'
       config.build_settings['COPY_PHASE_STRIP'] = 'NO'
+
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= [
+        '$(inherited)',
+        # cunning_document_scanner → permission_handler → camera permission
+        'PERMISSION_CAMERA=1',
+      ]
     end
   end
 end

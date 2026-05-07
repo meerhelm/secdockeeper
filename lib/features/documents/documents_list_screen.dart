@@ -39,8 +39,22 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
     super.dispose();
   }
 
-  Future<void> _import() async {
+  Future<void> _showAddSheet() async {
     final cubit = context.read<DocumentsListCubit>();
+    final action = await showModalBottomSheet<_AddAction>(
+      context: context,
+      builder: (_) => const _AddSheet(),
+    );
+    if (action == null) return;
+    switch (action) {
+      case _AddAction.scan:
+        await cubit.scanDocument();
+      case _AddAction.importFile:
+        await _pickAndImportFiles(cubit);
+    }
+  }
+
+  Future<void> _pickAndImportFiles(DocumentsListCubit cubit) async {
     final result = await FilePicker.pickFiles(
       withData: true,
       allowMultiple: true,
@@ -273,7 +287,7 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                   right: 16,
                   bottom: 16,
                   child: FloatingActionButton.extended(
-                    onPressed: state.busy ? null : _import,
+                    onPressed: state.busy ? null : _showAddSheet,
                     icon: state.busy
                         ? SizedBox(
                             width: 18,
@@ -284,7 +298,7 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                             ),
                           )
                         : const Icon(Icons.add, size: 18),
-                    label: const Text('Import'),
+                    label: const Text('Add'),
                   ),
                 ),
               ],
@@ -856,6 +870,82 @@ class _CheckRow extends StatelessWidget {
                 style: TextStyle(color: c.fg, fontSize: 14.5),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+enum _AddAction { scan, importFile }
+
+class _AddSheet extends StatelessWidget {
+  const _AddSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _AddSheetTile(
+              icon: Icons.document_scanner_outlined,
+              title: 'Scan document',
+              subtitle: 'Camera · auto edge detection · multi-page PDF',
+              onTap: () => Navigator.pop(context, _AddAction.scan),
+            ),
+            Divider(height: 1, color: c.border),
+            _AddSheetTile(
+              icon: Icons.upload_file_outlined,
+              title: 'Import file',
+              subtitle: 'Pick existing files from device storage',
+              onTap: () => Navigator.pop(context, _AddAction.importFile),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AddSheetTile extends StatelessWidget {
+  const _AddSheetTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: c.fg),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: TextStyle(color: c.fg, fontSize: 14.5)),
+                  const SizedBox(height: 3),
+                  Text(subtitle, style: AppMono.of(context, size: 10, color: c.muted)),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, size: 16, color: c.muted2),
           ],
         ),
       ),

@@ -15,6 +15,7 @@ import '../../vault/usecases/lock_vault.dart';
 import '../../vault/usecases/rotate_vault_key.dart';
 import '../folder_scope.dart';
 import '../usecases/import_files.dart';
+import '../usecases/scan_document.dart';
 import '../usecases/search_documents.dart';
 import '../usecases/watch_document_changes.dart';
 import 'documents_list_state.dart';
@@ -25,6 +26,7 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
     required ListFoldersUseCase listFolders,
     required ListAllTagsUseCase listAllTags,
     required ImportFilesUseCase importFiles,
+    required ScanDocumentUseCase scanDocument,
     required ImportSharedPackageUseCase importSharedPackage,
     required ExportBackupUseCase exportBackup,
     required LockVaultUseCase lockVault,
@@ -37,6 +39,7 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
         _listFolders = listFolders,
         _listAllTags = listAllTags,
         _importFiles = importFiles,
+        _scanDocument = scanDocument,
         _importSharedPackage = importSharedPackage,
         _exportBackup = exportBackup,
         _lockVault = lockVault,
@@ -55,6 +58,7 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
   final ListFoldersUseCase _listFolders;
   final ListAllTagsUseCase _listAllTags;
   final ImportFilesUseCase _importFiles;
+  final ScanDocumentUseCase _scanDocument;
   final ImportSharedPackageUseCase _importSharedPackage;
   final ExportBackupUseCase _exportBackup;
   final LockVaultUseCase _lockVault;
@@ -131,6 +135,23 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
     } catch (e) {
       if (!isClosed) {
         emit(state.copyWith(busy: false, error: 'Import failed: $e'));
+      }
+    }
+  }
+
+  Future<void> scanDocument() async {
+    emit(state.copyWith(busy: true, clearError: true, clearMessage: true));
+    try {
+      final imported = await _scanDocument();
+      if (!isClosed) {
+        emit(state.copyWith(
+          busy: false,
+          message: imported == 0 ? 'Scan cancelled' : 'Document scanned',
+        ));
+      }
+    } catch (e) {
+      if (!isClosed) {
+        emit(state.copyWith(busy: false, error: 'Scan failed: $e'));
       }
     }
   }

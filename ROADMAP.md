@@ -61,8 +61,13 @@ architecture / security docs.
 
 ## Document acquisition
 
-8. **In-app document scanner** — camera + edge detection + perspective
-   correction + multi-page PDF assembly. *(roadmap)*
+8. ~~**In-app document scanner** — camera + edge detection + perspective
+   correction + multi-page PDF assembly.~~ **Done.** Capture goes through
+   ML Kit Document Scanner on Android and VisionKit on iOS (via
+   `cunning_document_scanner`); the resulting JPEGs are assembled into a
+   single PDF in-process and fed through `DocumentImportService` like any
+   other import. The scratch JPEGs are deleted before the import returns.
+   OCR over scanned PDF pages is still pending (#26).
 9. **OS share-target intent** — register the app as a share target so
    users can send a file from any other app straight into the vault.
 10. **Clipboard image import** — paste-from-clipboard on the FAB long-press.
