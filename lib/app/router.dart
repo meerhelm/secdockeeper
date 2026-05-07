@@ -25,6 +25,10 @@ import '../features/security/usecases/biometric_unlock.dart';
 import '../features/security/usecases/enable_biometrics.dart';
 import '../features/security/usecases/is_biometric_available.dart';
 import '../features/security/usecases/is_biometric_unlock_ready.dart';
+import '../features/security/usecases/register_failed_unlock.dart';
+import '../features/security/usecases/set_panic_action.dart';
+import '../features/settings/cubit/settings_cubit.dart';
+import '../features/settings/settings_screen.dart';
 import '../features/sharing/usecases/import_shared_package.dart';
 import '../features/sharing/usecases/share_document.dart';
 import '../features/tags/usecases/list_all_tags.dart';
@@ -77,6 +81,7 @@ GoRouter buildAppRouter({required VaultService vault}) {
               isBiometricAvailable:
                   IsBiometricAvailableUseCase(s.biometrics),
               enableBiometrics: EnableBiometricsUseCase(s.lockSettings),
+              setPanicAction: SetPanicActionUseCase(s.lockSettings),
               restoreBackup: RestoreBackupUseCase(s.backup),
             ),
             child: const OnboardingScreen(),
@@ -99,6 +104,15 @@ GoRouter buildAppRouter({required VaultService vault}) {
                 biometrics: s.biometrics,
                 lockSettings: s.lockSettings,
               ),
+              registerFailedUnlock: RegisterFailedUnlockUseCase(
+                lockSettings: s.lockSettings,
+                destroyVault: DestroyVaultUseCase(
+                  vault: s.vault,
+                  opener: s.opener,
+                  lockSettings: s.lockSettings,
+                ),
+              ),
+              lockSettings: s.lockSettings,
             ),
             child: const LockScreen(),
           );
@@ -177,6 +191,19 @@ GoRouter buildAppRouter({required VaultService vault}) {
             },
           ),
         ],
+      ),
+      GoRoute(
+        path: AppRoutes.settings,
+        builder: (context, _) {
+          final s = AppScope.of(context);
+          return BlocProvider(
+            create: (_) => SettingsCubit(
+              lockSettings: s.lockSettings,
+              setPanicAction: SetPanicActionUseCase(s.lockSettings),
+            ),
+            child: const SettingsScreen(),
+          );
+        },
       ),
     ],
   );

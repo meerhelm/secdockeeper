@@ -147,6 +147,10 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
     }
   }
 
+  void _openSettings() {
+    context.push(AppRoutes.settings);
+  }
+
   String _formatTotalSize(List<Document> docs) {
     final bytes = docs.fold<int>(0, (a, b) => a + b.size);
     if (bytes < 1024) return '$bytes B';
@@ -198,6 +202,7 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                       onExportBackup: () =>
                           context.read<DocumentsListCubit>().exportBackup(),
                       onChangePassword: _showChangePassword,
+                      onSettings: _openSettings,
                       onDestroyVault: _showDestroyVault,
                     )),
                     SliverToBoxAdapter(
@@ -297,6 +302,7 @@ class _VaultHeader extends StatelessWidget {
     required this.onImportShared,
     required this.onExportBackup,
     required this.onChangePassword,
+    required this.onSettings,
     required this.onDestroyVault,
   });
 
@@ -304,6 +310,7 @@ class _VaultHeader extends StatelessWidget {
   final VoidCallback onImportShared;
   final VoidCallback onExportBackup;
   final VoidCallback onChangePassword;
+  final VoidCallback onSettings;
   final VoidCallback onDestroyVault;
 
   @override
@@ -334,6 +341,7 @@ class _VaultHeader extends StatelessWidget {
             onImportShared: onImportShared,
             onExportBackup: onExportBackup,
             onChangePassword: onChangePassword,
+            onSettings: onSettings,
             onDestroyVault: onDestroyVault,
           ),
         ],
@@ -347,11 +355,13 @@ class _OverflowMenu extends StatelessWidget {
     required this.onImportShared,
     required this.onExportBackup,
     required this.onChangePassword,
+    required this.onSettings,
     required this.onDestroyVault,
   });
   final VoidCallback onImportShared;
   final VoidCallback onExportBackup;
   final VoidCallback onChangePassword;
+  final VoidCallback onSettings;
   final VoidCallback onDestroyVault;
 
   @override
@@ -362,6 +372,7 @@ class _OverflowMenu extends StatelessWidget {
         if (v == 'import_share') onImportShared();
         if (v == 'export_backup') onExportBackup();
         if (v == 'change_password') onChangePassword();
+        if (v == 'settings') onSettings();
         if (v == 'destroy_vault') onDestroyVault();
       },
       offset: const Offset(0, 44),
@@ -390,6 +401,14 @@ class _OverflowMenu extends StatelessWidget {
             icon: Icons.key_outlined,
             title: 'Change master password',
             sub: 're-encrypts all document keys',
+          ),
+        ),
+        PopupMenuItem(
+          value: 'settings',
+          child: _MenuItem(
+            icon: Icons.tune,
+            title: 'Settings',
+            sub: 'panic mode and other tunables',
           ),
         ),
         const PopupMenuDivider(),
