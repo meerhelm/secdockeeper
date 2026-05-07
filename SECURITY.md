@@ -9,15 +9,10 @@ treat security reports as a first-class priority.
 **Please do not open a public GitHub issue for security problems.** A public
 report gives attackers a head start and may expose users before a fix ships.
 
-Instead, use one of the following private channels:
-
-- **GitHub private vulnerability reporting** (preferred): open the
-  [Security advisories](../../security/advisories/new) tab on this repository
-  and submit a draft advisory. This is end-to-end private between you and the
-  maintainer.
-- **Email**: <!-- TODO: replace with a monitored address before pushing public -->
-  `security@<your-domain>` — please use the PGP key linked in the maintainer's
-  GitHub profile if you can.
+Instead, please use **GitHub private vulnerability reporting**: open the
+[Security advisories](../../security/advisories/new) tab on this repository
+and submit a draft advisory. This is end-to-end private between you and the
+maintainer.
 
 Include in your report:
 

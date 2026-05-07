@@ -24,8 +24,8 @@ the first public push and reviewed on every subsequent major release.
 Existing commits include identifying information that public history would
 expose:
 
-- `valentinsobolev@gmail.com` (personal Gmail)
-- `valentinsobolev@Valentins-MacBook-Pro.local` (personal hostname)
+- a personal Gmail address used as the original commit author email
+- a personal `user@host.local` Git committer identity
 
 Pick **one** option:
 
@@ -51,8 +51,8 @@ git filter-repo \
   --email-callback '
     return b"<id>+valentinsobolev@users.noreply.github.com"
       if email in (
-        b"valentinsobolev@gmail.com",
-        b"valentinsobolev@Valentins-MacBook-Pro.local",
+        b"<old-personal-email>",
+        b"<old-host-identity>",
       )
       else email
   ' \
@@ -64,9 +64,10 @@ Replace `<id>` with your numeric GitHub user id (look it up at
 
 ### 2. Lock future commits to the no-reply email
 
+From the repo root:
+
 ```bash
-cd /Users/valentinsobolev/Development/meerhelm/secdockeeper
-git config --local user.email "<id>+valentinsobolev@users.noreply.github.com"
+git config --local user.email "<id>+<username>@users.noreply.github.com"
 git config --local user.name  "Valentin Sobolev"
 ```
 
@@ -116,13 +117,3 @@ git diff --cached
 If anything from `compliance/`, `.claude/`, a keystore, or `.env*` shows up,
 stop and fix the `.gitignore`.
 
-## Compliance maintenance (lives outside the repo)
-
-Documents in `~/Documents/secdockeeper-compliance/`:
-
-- Fill in `[00-XXX]` postal code and `[+48 phone]` placeholders.
-- Sign and date `us-export-classification.md` and
-  `france-general-use-attestation.md`, export to PDF, combine into the
-  Apple upload bundle.
-- File the BIS/NIST annual self-classification report by **2027-02-01**
-  for calendar year 2026 (and every February thereafter).
