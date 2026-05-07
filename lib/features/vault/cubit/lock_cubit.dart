@@ -33,8 +33,10 @@ class LockCubit extends Cubit<VaultLockState> {
 
     final until = _lockSettings.lockedUntil;
     final coolingDown = until != null && DateTime.now().isBefore(until);
-    final panicSuppressed =
-        _lockSettings.failedAttempts >= LockSettings.panicThreshold;
+    // Biometric is suppressed after any wrong password and stays suppressed
+    // until a correct password unlocks — prevents an attacker from pivoting
+    // back to the biometric prompt after probing the password field.
+    final panicSuppressed = _lockSettings.failedAttempts > 0;
 
     emit(state.copyWith(
       biometricAvailable: readiness.ready && !panicSuppressed,
@@ -79,6 +81,7 @@ class LockCubit extends Cubit<VaultLockState> {
             LockSettings.panicThreshold - outcome.failedAttempts;
         emit(state.copyWith(
           busy: false,
+          biometricAvailable: false,
           error: remaining == 1
               ? 'Incorrect password. 1 attempt left before lockout.'
               : 'Incorrect password. $remaining attempts left.',
