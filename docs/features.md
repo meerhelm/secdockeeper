@@ -20,20 +20,26 @@ the state diagram.
 
 **Flow:**
 
-1. User enters a master password (8+ chars) and confirms.
+1. User enters a master password (12+ chars) and confirms.
 2. `OnboardingCubit.create(password)` checks if biometric is available on
    the device.
 3. If yes, the cubit emits `askBiometric: true`. The screen's
    `BlocListener` shows the "Enable biometric unlock?" dialog. The user
    chooses Skip or Enable; the screen calls `cubit.resolveBiometric(accepted)`.
-4. The cubit calls `InitializeVaultUseCase(password)`. If the user accepted,
+4. The cubit then emits `askPanic: true`. The screen shows a "Panic mode"
+   chooser (lockout vs. wipe). Picking *Wipe* triggers a second
+   "Are you sure?" confirm. The screen calls `cubit.resolvePanic(action)`.
+5. The cubit calls `SetPanicActionUseCase(action)`, then
+   `InitializeVaultUseCase(password)`. If the user accepted biometric,
    it then calls `EnableBiometricsUseCase(password)` to seal the password
    in the platform keystore.
-5. `vault.initialize()` notifies → `GoRouter` redirect → user lands on
+6. `vault.initialize()` notifies → `GoRouter` redirect → user lands on
    `/documents`.
 
-If biometric is unavailable, the cubit calls `InitializeVaultUseCase`
-directly — same redirect.
+If biometric is unavailable the cubit skips straight from step 3 to step 4.
+The panic-mode prompt is mandatory — there is no "no panic mode" option;
+the user picks the trade-off they want. See
+[panic mode](#panic-mode) for what each policy does.
 
 **Restore path:** the "Restore from backup" button picks a `.zip` file and
 calls `cubit.restore(file)`. `RestoreBackupUseCase` extracts the archive
@@ -79,6 +85,31 @@ session).
 
 The biometric-disabling side effect on `InvalidStoredPassword` lives inside
 the use case so multiple call sites can't forget it.
+
+**Failed-attempt handling:** every failed manual unlock goes through
+`RegisterFailedUnlockUseCase`, which increments `LockSettings.failedAttempts`
+and decides what comes next based on the user's panic policy:
+
+- After **any** wrong password, biometric is suppressed (the "Use biometric"
+  button / ring disappear) until a correct password resets the counter.
+  This blocks an attacker from pivoting back to the biometric prompt after
+  probing.
+- On the 3rd, 6th, 9th, … wrong attempt:
+  - **Lockout policy:** `lockedUntil` is set to `now + duration`, where
+    duration escalates `10m → 30m → 1h → 1d`. The lock screen disables
+    inputs and shows a `MM:SS` countdown via `Timer.periodic`. When the
+    timer hits zero the cubit's `cooldownExpired()` clears `lockedUntil`
+    but **leaves the counter intact** — so failure 4, 5 don't trigger a
+    cooldown, but failure 6 does (with the 30m duration).
+  - **Wipe policy:** `DestroyVaultUseCase` runs immediately. Vault state
+    becomes `uninitialized`, the router redirects to onboarding, and the
+    user (or attacker) sees a fresh first-run flow with no warning.
+- Biometric failures (fingerprint mismatch, dismissed prompt) do **not**
+  count toward the threshold. Only manual password attempts increment.
+
+`LockCubit.init()` re-reads `failedAttempts` and `lockedUntil` from
+`LockSettings` on screen mount, so a kill-and-relaunch during a cooldown
+restores the countdown.
 
 ## Documents list
 
@@ -297,6 +328,9 @@ Android — via `flutter_secure_storage`.
 - `sdk.biometric_enabled` — `"true"` or `"false"`
 - `sdk.master_password` — only present when biometric is enabled
 - `sdk.auto_lock_seconds` — integer, default 60
+- `sdk.panic_action` — `"lockout"` or `"wipe"` (default `"lockout"`)
+- `sdk.panic_failed_attempts` — integer, default 0 (cleared on success)
+- `sdk.panic_locked_until_ms` — epoch ms, present only during cooldown
 
 `LockSettings.readStoredPassword` returns `null` if biometric is disabled,
 which is the safety net `BiometricUnlockUseCase` relies on for the
@@ -317,3 +351,70 @@ profiles.
 The controller is not connected to a cubit because it operates on app
 lifecycle, not user actions. It reads from `LockSettings` directly and
 calls `vault.lock()` directly.
+
+## Panic mode
+
+A user-chosen response to repeated wrong-password attempts. The user picks
+the policy at vault creation and can flip it later from Settings. Two
+options:
+
+| Policy | After 3 wrong attempts | Counter resets |
+|---|---|---|
+| `PanicAction.lockout` (default) | Cooldown — `10m → 30m → 1h → 1d` ladder, escalating every 3 fails | Only on a successful unlock |
+| `PanicAction.wipe`              | Silent `DestroyVaultUseCase` — vault.json + db + blobs deleted | N/A (vault is gone) |
+
+**Files:**
+[`features/security/lock_settings.dart`](../lib/features/security/lock_settings.dart) (storage),
+[`features/security/usecases/register_failed_unlock.dart`](../lib/features/security/usecases/register_failed_unlock.dart) (decision),
+[`features/security/usecases/set_panic_action.dart`](../lib/features/security/usecases/set_panic_action.dart) (write),
+[`features/vault/cubit/lock_cubit.dart`](../lib/features/vault/cubit/lock_cubit.dart) (orchestration),
+[`features/vault/lock_screen.dart`](../lib/features/vault/lock_screen.dart) (countdown UI).
+
+**Why silent wipe:** if the wipe gave a "you have one attempt left" warning,
+an attacker (or you, by mistake) would get a free chance to bail — defeating
+the point. The "are you sure?" confirms live at *enable time* (onboarding /
+settings), not at trigger time.
+
+**Why escalating, no reset:** the counter only resets on a successful unlock,
+so a slow brute-force across days still walks up the ladder. After the 1-day
+tier the cap holds at 1 day forever.
+
+**Threshold and ladder are not configurable today.** They're constants in
+`LockSettings` (`panicThreshold = 3`, `lockoutDurationFor`). If you need to
+tune them per-deployment, lift them into stored settings — same shape as the
+other `LockSettings` fields.
+
+**Cooldown UI:** while `lockedUntil > now`, the lock screen replaces the
+password field and biometric ring with a countdown panel and disables submit.
+A `Timer.periodic(1s)` triggers rebuilds; on expiry the cubit clears
+`lockedUntil` but **not** the counter, and inputs re-enable. Biometric stays
+hidden because `failedAttempts > 0`.
+
+**Persistence across restart:** all panic state is in `flutter_secure_storage`,
+so a kill-and-relaunch during a cooldown brings the user back to the same
+locked-out screen with the same countdown. `LockCubit.init()` re-reads it on
+mount.
+
+**Orphan-cleanup on launch:** iOS Keychain (and Android EncryptedSharedPreferences
+with auto-backup) outlive the app's filesystem sandbox. After an
+uninstall-reinstall, the vault file is gone but the panic counter could still
+be in Keychain. `main.dart` checks for this and calls `LockSettings.clearAll()`
+when there's no vault but residual secure-storage state is present — the user
+gets a clean onboarding instead of a spurious lockout.
+
+## Settings
+
+A minimal settings screen at `/settings`, reachable from the documents-list
+overflow menu. Today the only section is **Panic mode**, where the user
+flips between `Lockout` and `Wipe`. Switching to `Wipe` requires a
+confirmation dialog identical to the one shown at onboarding.
+
+**Files:** [`features/settings/`](../lib/features/settings/)
+
+**Cubit:** `SettingsCubit` reads `LockSettings.panicAction` on construction
+and writes through `SetPanicActionUseCase`. No state is held that isn't
+already in `LockSettings`.
+
+Other tunables (`autoLockSeconds`, biometric on/off, Argon2id profile) are
+deliberately not surfaced here yet — extend this screen rather than
+building a new one. See ROADMAP item 39.

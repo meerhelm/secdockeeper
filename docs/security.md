@@ -21,6 +21,12 @@ We protect against:
 - **Compromised file shares**: the document sharing format separates the
   ciphertext (`.sdkblob`) from the wrapping key (`.sdkkey.json`) so they can be
   delivered over different channels. Capturing only one is useless.
+- **Online password guessing on a recovered device**: panic mode (see
+  [`features.md#panic-mode`](features.md#panic-mode)) imposes an escalating
+  lockout (10m → 30m → 1h → 1d, every 3 fails, no reset except on success)
+  or — at the user's choice — silently wipes the vault on the 3rd wrong
+  attempt. Biometric is suppressed after any wrong password to prevent
+  attacker pivoting between unlock surfaces.
 
 We do **not** protect against:
 
@@ -131,6 +137,31 @@ locked ◄────── lock() ──── unlocked ◄───┘
 router redirect kicks in after a restore (the descriptor file appeared, but
 the cached state needs a refresh).
 
+### Panic mode and `destroy()`
+
+`VaultService.destroy()` is the one path that nukes the entire vault root
+(`vault.json` + `vault.db` + `blobs/`) and recreates an empty shell. It is
+called from two places:
+
+1. The "Destroy vault" menu in the documents list (with a `DESTROY`-typed
+   confirmation).
+2. `RegisterFailedUnlockUseCase` when the user's panic policy is
+   `PanicAction.wipe` and the wrong-attempt counter hits the threshold —
+   *no warning, no confirmation*. The user opted in at onboarding /
+   settings; trigger time is silent on purpose.
+
+Both paths funnel through `DestroyVaultUseCase`, which also calls
+`DocumentOpenService.deleteAllTemp()` and `LockSettings.clearAll()` so no
+plaintext temp files or Keychain leftovers survive the destroy.
+
+**Counter persistence — known limitation.** The failed-attempt counter and
+`lockedUntil` live in `flutter_secure_storage` (Keychain on iOS, EncryptedSharedPreferences on
+Android). The integrity of the panic gate therefore relies on the platform's
+secure storage being tamper-resistant. A rooted/jailbroken device with shell
+access could roll back the counter between attempts. Don't model panic mode
+as a defense against that adversary — it's a guard against an attacker who
+recovers the locked device and tries to brute-force the unlock screen.
+
 ## Decrypted plaintext lifetime
 
 Two places hold plaintext, and only briefly:
@@ -225,10 +256,14 @@ priority target.
 - **Don't pass the password around.** It enters `OnboardingCubit.create` /
   `LockCubit.submit`, gets handed to `Kdf`, and is dropped. After that, only
   the KEK exists.
-- **Don't log secrets.** No `debugPrint(password)`, no
-  `debugPrint(kek.toString())`. Even nonces should not be logged with the
-  associated ciphertext — they're not secret in isolation, but pairing them
-  in logs makes plaintext recovery a one-bug-away problem.
+- **Don't log secrets.** Use `log.x(...)` from
+  [`lib/core/logging/app_logger.dart`](../lib/core/logging/app_logger.dart)
+  for all logging — never `print` / `debugPrint` / `Logger()` instances of
+  your own. The `DevelopmentFilter` suppresses output in release builds, but
+  do not rely on that: never log the password, the KEK, a DEK, a hidden tag
+  name, or decrypted document bytes. Even nonces should not be logged with
+  the associated ciphertext — they're not secret in isolation, but pairing
+  them in logs makes plaintext recovery a one-bug-away problem.
 - **Don't catch and ignore decryption errors.** `Aead.open` throws on MAC
   failure; that's a tampered or wrong-key blob and should propagate.
 - **Don't add a "remember password" feature outside of the existing

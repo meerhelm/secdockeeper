@@ -5,10 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../app/tokens.dart';
+import '../../core/logging/app_logger.dart';
 import '../../app/widgets/app_buttons.dart';
 import '../../app/widgets/app_field.dart';
 import '../../app/widgets/brand_mark.dart';
 import '../../app/widgets/warn_banner.dart';
+import '../security/lock_settings.dart';
 import 'cubit/onboarding_cubit.dart';
 import 'cubit/onboarding_state.dart';
 
@@ -26,6 +28,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   bool _showPwd = false;
   bool _showConfirm = false;
   int _strength = 0;
+  String? _formError;
 
   @override
   void initState() {
@@ -60,7 +63,21 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       };
 
   void _submit() {
-    if (!_formKey.currentState!.validate()) return;
+    final valid = _formKey.currentState?.validate() ?? false;
+    log.d('[onboarding] _submit: valid=$valid, '
+        'pwdLen=${_pwd.text.length}, '
+        'confirmMatches=${_confirm.text == _pwd.text}');
+    if (!valid) {
+      setState(() {
+        _formError = _pwd.text.length < 12
+            ? 'Password must be at least 12 characters.'
+            : _confirm.text != _pwd.text
+                ? 'Passwords do not match.'
+                : 'Please correct the highlighted fields.';
+      });
+      return;
+    }
+    setState(() => _formError = null);
     context.read<OnboardingCubit>().create(_pwd.text);
   }
 
@@ -122,6 +139,116 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     await cubit.resolveBiometric(accepted: accept ?? false);
   }
 
+  Future<void> _onAskPanic() async {
+    final cubit = context.read<OnboardingCubit>();
+    final action = await _showPanicChooser(context);
+    PanicAction? confirmed = action;
+    if (action == PanicAction.wipe) {
+      if (!mounted) return;
+      final ok = await _confirmWipeChoice(context);
+      confirmed = ok ? PanicAction.wipe : null;
+    }
+    // Default to lockout if user dismissed.
+    await cubit.resolvePanic(confirmed ?? PanicAction.lockout);
+  }
+
+  Future<PanicAction?> _showPanicChooser(BuildContext ctx) {
+    final c = ctx.c;
+    return showDialog<PanicAction>(
+      context: ctx,
+      barrierDismissible: false,
+      builder: (dctx) => AlertDialog(
+        titlePadding: const EdgeInsets.fromLTRB(22, 22, 22, 4),
+        contentPadding: const EdgeInsets.fromLTRB(22, 8, 22, 4),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: c.errorSoft,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(Icons.shield_outlined, size: 26, color: c.error),
+            ),
+            const SizedBox(height: 14),
+            const Text('Panic mode'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'After 3 wrong password attempts the vault can either lock '
+              'itself for a while, or wipe everything. Pick what fits your '
+              'threat model.',
+              style: TextStyle(color: c.muted, fontSize: 13.5, height: 1.55),
+            ),
+            const SizedBox(height: 16),
+            _PanicOptionTile(
+              icon: Icons.lock_clock,
+              title: 'Lock for 10 minutes',
+              subtitle:
+                  'Cooldown grows on repeat: 10 m → 30 m → 1 h → 1 day. '
+                  'Counter resets only on a successful unlock.',
+              onTap: () => Navigator.pop(dctx, PanicAction.lockout),
+            ),
+            const SizedBox(height: 10),
+            _PanicOptionTile(
+              icon: Icons.delete_forever_outlined,
+              title: 'Wipe vault permanently',
+              subtitle:
+                  'On the 3rd wrong attempt every document, key, and tag '
+                  'is deleted. No recovery without a backup.',
+              danger: true,
+              onTap: () => Navigator.pop(dctx, PanicAction.wipe),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, null),
+            style: TextButton.styleFrom(foregroundColor: c.muted),
+            child: const Text('Decide later'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<bool> _confirmWipeChoice(BuildContext ctx) async {
+    final c = ctx.c;
+    final ok = await showDialog<bool>(
+      context: ctx,
+      builder: (dctx) => AlertDialog(
+        title: Text('Enable wipe-on-panic?', style: TextStyle(color: c.error)),
+        content: const Text(
+          'After 3 wrong password attempts your vault will be permanently '
+          'erased — no warning, no undo. Are you sure?',
+          style: TextStyle(fontSize: 13.5, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, false),
+            style: TextButton.styleFrom(foregroundColor: c.fg),
+            child: const Text('Use lockout instead'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dctx, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: c.error,
+              foregroundColor: c.fgStrong,
+            ),
+            child: const Text('Enable wipe'),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.c;
@@ -131,9 +258,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     return BlocConsumer<OnboardingCubit, OnboardingState>(
       listenWhen: (prev, curr) =>
           prev.askBiometric != curr.askBiometric ||
+          prev.askPanic != curr.askPanic ||
           prev.restoreMessage != curr.restoreMessage,
       listener: (context, state) {
         if (state.askBiometric) _onAskBiometric();
+        if (state.askPanic) _onAskPanic();
         final msg = state.restoreMessage;
         if (msg != null) {
           messenger.showSnackBar(SnackBar(content: Text(msg)));
@@ -222,6 +351,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             return null;
                           },
                         ),
+                        if (_formError != null) ...[
+                          const SizedBox(height: 16),
+                          _ErrorBanner(text: _formError!),
+                        ],
                         if (state.error != null) ...[
                           const SizedBox(height: 16),
                           _ErrorBanner(text: state.error!),
@@ -270,6 +403,70 @@ class _EyeToggle extends StatelessWidget {
           shown ? Icons.visibility_off_outlined : Icons.visibility_outlined,
           size: 16,
           color: c.muted,
+        ),
+      ),
+    );
+  }
+}
+
+class _PanicOptionTile extends StatelessWidget {
+  const _PanicOptionTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.danger = false,
+  });
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final accent = danger ? c.error : c.accent;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: c.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: c.border, width: 1),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 20, color: accent),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: danger ? c.error : c.fg,
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: c.muted,
+                      fontSize: 12.5,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
