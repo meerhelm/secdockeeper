@@ -21,8 +21,14 @@ architecture / security docs.
    SQLCipher.
 4. **App PIN as second factor** — short PIN gate *before* biometric prompt,
    separate from the master password (PIN unwraps a sealed master).
-5. **Panic wipe** — N failed unlocks (configurable) deletes `vault.json` +
-   `vault.db` + `blobs/`. Off by default; opt-in from settings.
+5. ~~**Panic wipe** — N failed unlocks (configurable) deletes `vault.json` +
+   `vault.db` + `blobs/`. Off by default; opt-in from settings.~~ **Done.**
+   Shipped as **panic mode** with two policies the user picks at vault
+   creation (or changes from Settings): *escalating lockout* (10m → 30m → 1h
+   → 1d after every 3 wrong attempts; counter resets only on successful
+   unlock) or *silent wipe* (3rd wrong attempt destroys the vault). Biometric
+   is suppressed after any wrong password until a correct unlock. See
+   [`docs/features.md#panic-mode`](docs/features.md#panic-mode).
 6. **iOS background blur overlay** — [`docs/security.md`](docs/security.md#anti-snoop--lifecycle-defaults)
    already flags this as a gap on iOS; trivial to add via lifecycle observer.
 7. **Memory hygiene pass** — best-effort zeroization on `vault.lock()`
@@ -143,10 +149,11 @@ architecture / security docs.
 ## Settings (currently no settings UI exists)
 
 39. **Settings screen** — auto-lock seconds, biometric on/off, panic-wipe,
-    Argon2id profile, theme. Today these are stored but only `LockSettings`
-    keys are user-tunable, and there's no UI surface. *(The redesign brief
-    says no settings page; worth pushing back — at minimum an auto-lock
-    control is needed.)*
+    Argon2id profile, theme. **Partially done:** a Settings screen ships at
+    `/settings` (reachable from the documents-list overflow menu) and exposes
+    the panic-mode policy toggle. Auto-lock seconds, biometric on/off,
+    Argon2id profile, and theme are still unsurfaced — extend the same
+    screen rather than building a new one.
 40. **Per-vault "high-paranoia" preset** — bumps Argon2id, sets auto-lock
     to 0, enables panic-wipe, disables biometric, in one toggle.
 
