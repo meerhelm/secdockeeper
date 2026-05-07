@@ -125,4 +125,10 @@ See the full [ROADMAP.md](ROADMAP.md) for detailed functional suggestions and cr
 
 ## License
 
-No license selected yet. Code is private until a license is chosen.
+Licensed under the [Apache License, Version 2.0](LICENSE). See the
+[`LICENSE`](LICENSE) file for the full text.
+
+## Reporting security issues
+
+Please do not file public issues for security vulnerabilities. See
+[`SECURITY.md`](SECURITY.md) for the responsible-disclosure policy.
