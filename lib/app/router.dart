@@ -13,6 +13,7 @@ import '../features/documents/usecases/get_document.dart';
 import '../features/documents/usecases/import_files.dart';
 import '../features/documents/usecases/open_document.dart';
 import '../features/documents/usecases/rename_document.dart';
+import '../features/documents/usecases/scan_document.dart';
 import '../features/documents/usecases/search_documents.dart';
 import '../features/documents/usecases/watch_document_changes.dart';
 import '../features/folders/usecases/create_folder.dart';
@@ -132,6 +133,10 @@ GoRouter buildAppRouter({required VaultService vault}) {
               listFolders: ListFoldersUseCase(s.folders),
               listAllTags: ListAllTagsUseCase(s.tags),
               importFiles: ImportFilesUseCase(s.importer),
+              scanDocument: ScanDocumentUseCase(
+                scanner: s.scanner,
+                importer: s.importer,
+              ),
               importSharedPackage: ImportSharedPackageUseCase(s.share),
               exportBackup: ExportBackupUseCase(
                 backup: s.backup,
