@@ -1,0 +1,71 @@
+PODS:
+  - cryptography_flutter (0.0.1):
+    - FlutterMacOS
+  - file_picker (0.0.1):
+    - FlutterMacOS
+  - flutter_secure_storage_darwin (10.0.0):
+    - Flutter
+    - FlutterMacOS
+  - FlutterMacOS (1.0.0)
+  - FMDB/Core (2.7.12)
+  - FMDB/SQLCipher (2.7.12):
+    - FMDB/Core
+    - SQLCipher (~> 4.6)
+  - pdfx (1.0.0):
+    - FlutterMacOS
+  - share_plus (0.0.1):
+    - FlutterMacOS
+  - sqflite_sqlcipher (0.0.1):
+    - FlutterMacOS
+    - FMDB/SQLCipher (~> 2.7.5)
+    - SQLCipher (= 4.10.0)
+  - SQLCipher (4.10.0):
+    - SQLCipher/standard (= 4.10.0)
+  - SQLCipher/common (4.10.0)
+  - SQLCipher/standard (4.10.0):
+    - SQLCipher/common
+
+DEPENDENCIES:
+  - cryptography_flutter (from `Flutter/ephemeral/.symlinks/plugins/cryptography_flutter/macos`)
+  - file_picker (from `Flutter/ephemeral/.symlinks/plugins/file_picker/macos`)
+  - flutter_secure_storage_darwin (from `Flutter/ephemeral/.symlinks/plugins/flutter_secure_storage_darwin/darwin`)
+  - FlutterMacOS (from `Flutter/ephemeral`)
+  - pdfx (from `Flutter/ephemeral/.symlinks/plugins/pdfx/macos`)
+  - share_plus (from `Flutter/ephemeral/.symlinks/plugins/share_plus/macos`)
+  - sqflite_sqlcipher (from `Flutter/ephemeral/.symlinks/plugins/sqflite_sqlcipher/macos`)
+
+SPEC REPOS:
+  trunk:
+    - FMDB
+    - SQLCipher
+
+EXTERNAL SOURCES:
+  cryptography_flutter:
+    :path: Flutter/ephemeral/.symlinks/plugins/cryptography_flutter/macos
+  file_picker:
+    :path: Flutter/ephemeral/.symlinks/plugins/file_picker/macos
+  flutter_secure_storage_darwin:
+    :path: Flutter/ephemeral/.symlinks/plugins/flutter_secure_storage_darwin/darwin
+  FlutterMacOS:
+    :path: Flutter/ephemeral
+  pdfx:
+    :path: Flutter/ephemeral/.symlinks/plugins/pdfx/macos
+  share_plus:
+    :path: Flutter/ephemeral/.symlinks/plugins/share_plus/macos
+  sqflite_sqlcipher:
+    :path: Flutter/ephemeral/.symlinks/plugins/sqflite_sqlcipher/macos
+
+SPEC CHECKSUMS:
+  cryptography_flutter: be2b3e0e31603521b6a1c2bea232a88a2488a91c
+  file_picker: 7584aae6fa07a041af2b36a2655122d42f578c1a
+  flutter_secure_storage_darwin: acdb3f316ed05a3e68f856e0353b133eec373a23
+  FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
+  FMDB: 728731dd336af3936ce00f91d9d8495f5718a0e6
+  pdfx: 1e79f57f7a6ce2f4a4c30f21fa54d3dc82441b51
+  share_plus: 510bf0af1a42cd602274b4629920c9649c52f4cc
+  sqflite_sqlcipher: a4c2f17db76d2f86dfe044937d3a851d8880cbb9
+  SQLCipher: eb79c64049cb002b4e9fcb30edb7979bf4706dfc
+
+PODFILE CHECKSUM: 54d867c82ac51cbd61b565781b9fada492027009
+
+COCOAPODS: 1.16.2
