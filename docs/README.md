@@ -20,7 +20,6 @@ how to add new features without breaking invariants.
 | [Features](features.md) | Per-feature walkthroughs — onboarding, lock, documents, folders, tags, hidden tags, sharing, backup, biometrics |
 | [Testing](testing.md) | Test strategy, mocktail patterns, fakes, what's covered and what isn't |
 | [Contributing](contributing.md) | Recipes — adding a screen, adding a use case, schema migrations, working with hidden tags |
-| [Roadmap](../ROADMAP.md) | Categorized list of functional suggestions — items planned in the README plus net-new ideas |
 
 ## How to read this documentation
 

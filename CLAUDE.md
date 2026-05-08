@@ -62,7 +62,7 @@ Each feature is a self-contained folder usually with a `*_repository.dart` (DB-b
 ### Conventions to preserve
 
 - Use **Conventional Commits** for all git history (e.g., `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`).
-- Refer to [ROADMAP.md](ROADMAP.md) at the root for planned features and security enhancements.
+- Planned features and security enhancements live in the [GitHub issue tracker](https://github.com/meerhelm/secdockeeper/issues).
 - Decrypted plaintext is short-lived: in memory during import re-encryption, and in a temp file while a system viewer reads it. The temp directory is wiped on lock — don't introduce long-lived plaintext caches.
 - Don't add code paths that bypass `VaultService.lock()` — the assumption that `_kek`/`_vaultDb` go null on lock is load-bearing for the `state` getter and screen routing.
 - Hidden tags must not appear in any list, autocomplete, or count surface; treat them as a search-only feature.

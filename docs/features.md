@@ -417,4 +417,4 @@ already in `LockSettings`.
 
 Other tunables (`autoLockSeconds`, biometric on/off, Argon2id profile) are
 deliberately not surfaced here yet — extend this screen rather than
-building a new one. See ROADMAP item 39.
+building a new one. See [issue #45](https://github.com/meerhelm/secdockeeper/issues/45).

@@ -121,7 +121,7 @@ Planned features that are not yet implemented:
 - Stealth vault — second password reveals an alternate document set
 - Web build with an alternative storage layer (drift + sqlite3 wasm)
 
-See the full [ROADMAP.md](ROADMAP.md) for detailed functional suggestions and cryptographic security plans.
+See the [open issues](https://github.com/meerhelm/secdockeeper/issues) for the full backlog of functional suggestions and cryptographic security plans.
 
 ## License
 
