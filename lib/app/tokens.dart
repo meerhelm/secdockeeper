@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+
+const String _kMonoFamily = 'JetBrains Mono';
 
 /// Design-system tokens that don't fit neatly into [ColorScheme].
 /// Read via `Theme.of(context).extension<AppColors>()!` or the helper
@@ -154,7 +155,8 @@ extension AppColorsContext on BuildContext {
 }
 
 /// Mono text styling — used for meta lines, file sizes, dates, hashes, labels.
-/// Uses JetBrains Mono via google_fonts.
+/// Uses the bundled JetBrains Mono asset (see pubspec.yaml). No runtime
+/// network fetch — keeps the app's "no network calls" guarantee true.
 class AppMono {
   AppMono._();
 
@@ -164,7 +166,8 @@ class AppMono {
     FontWeight weight = FontWeight.w400,
     double letterSpacing = 0,
   }) {
-    return GoogleFonts.jetBrainsMono(
+    return TextStyle(
+      fontFamily: _kMonoFamily,
       fontSize: size,
       color: color ?? context.c.fg,
       fontWeight: weight,
@@ -175,7 +178,8 @@ class AppMono {
 
   /// Uppercase mono label — section headers, labels above inputs, etc.
   static TextStyle label(BuildContext context, {Color? color, double size = 10}) {
-    return GoogleFonts.jetBrainsMono(
+    return TextStyle(
+      fontFamily: _kMonoFamily,
       fontSize: size,
       color: color ?? context.c.muted,
       fontWeight: FontWeight.w500,
@@ -185,7 +189,8 @@ class AppMono {
 
   /// Meta line styling (file size · time, etc.)
   static TextStyle meta(BuildContext context, {Color? color}) {
-    return GoogleFonts.jetBrainsMono(
+    return TextStyle(
+      fontFamily: _kMonoFamily,
       fontSize: 10.5,
       color: color ?? context.c.muted,
       fontWeight: FontWeight.w400,
