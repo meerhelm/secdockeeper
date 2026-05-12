@@ -18,7 +18,8 @@ class FolderRepository {
   Future<List<Folder>> listAll() async {
     final rows = await _db.rawQuery('''
       SELECT f.*, (
-        SELECT COUNT(*) FROM documents d WHERE d.folder_id = f.id
+        (SELECT COUNT(*) FROM documents d WHERE d.folder_id = f.id) +
+        (SELECT COUNT(*) FROM notes n WHERE n.folder_id = f.id)
       ) AS document_count
       FROM folders f
       ORDER BY f.name COLLATE NOCASE
@@ -95,6 +96,19 @@ class FolderRepository {
       },
       where: 'id = ?',
       whereArgs: [documentId],
+    );
+    _notify();
+  }
+
+  Future<void> assignNote(int noteId, int? folderId) async {
+    await _db.update(
+      'notes',
+      {
+        'folder_id': folderId,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'id = ?',
+      whereArgs: [noteId],
     );
     _notify();
   }

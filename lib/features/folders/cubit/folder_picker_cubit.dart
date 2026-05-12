@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../usecases/assign_document_to_folder.dart';
 import '../usecases/create_folder.dart';
 import '../usecases/delete_folder.dart';
 import '../usecases/list_folders.dart';
@@ -10,18 +9,19 @@ import '../usecases/rename_folder.dart';
 import '../usecases/watch_folder_changes.dart';
 import 'folder_picker_state.dart';
 
+typedef AssignFolderCallback = Future<void> Function(int? folderId);
+
 class FolderPickerCubit extends Cubit<FolderPickerState> {
   FolderPickerCubit({
-    required this.documentId,
+    required AssignFolderCallback onAssign,
     required ListFoldersUseCase listFolders,
     required CreateFolderUseCase createFolder,
-    required AssignDocumentToFolderUseCase assignDocumentToFolder,
     required RenameFolderUseCase renameFolder,
     required DeleteFolderUseCase deleteFolder,
     required WatchFolderChangesUseCase watchFolderChanges,
-  })  : _listFolders = listFolders,
+  })  : _onAssign = onAssign,
+        _listFolders = listFolders,
         _createFolder = createFolder,
-        _assignDocumentToFolder = assignDocumentToFolder,
         _renameFolder = renameFolder,
         _deleteFolder = deleteFolder,
         super(const FolderPickerState()) {
@@ -29,10 +29,9 @@ class FolderPickerCubit extends Cubit<FolderPickerState> {
     _refresh();
   }
 
-  final int documentId;
+  final AssignFolderCallback _onAssign;
   final ListFoldersUseCase _listFolders;
   final CreateFolderUseCase _createFolder;
-  final AssignDocumentToFolderUseCase _assignDocumentToFolder;
   final RenameFolderUseCase _renameFolder;
   final DeleteFolderUseCase _deleteFolder;
 
@@ -46,10 +45,7 @@ class FolderPickerCubit extends Cubit<FolderPickerState> {
   Future<void> select(int? folderId) async {
     emit(state.copyWith(busy: true, clearError: true));
     try {
-      await _assignDocumentToFolder(
-        documentId: documentId,
-        folderId: folderId,
-      );
+      await _onAssign(folderId);
       if (!isClosed) emit(state.copyWith(busy: false, popRequested: true));
     } catch (e) {
       if (!isClosed) {
@@ -64,10 +60,7 @@ class FolderPickerCubit extends Cubit<FolderPickerState> {
     emit(state.copyWith(busy: true, clearError: true));
     try {
       final folder = await _createFolder(trimmed);
-      await _assignDocumentToFolder(
-        documentId: documentId,
-        folderId: folder.id,
-      );
+      await _onAssign(folder.id);
       if (!isClosed) emit(state.copyWith(busy: false, popRequested: true));
     } catch (e) {
       if (!isClosed) {

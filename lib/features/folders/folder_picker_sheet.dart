@@ -8,6 +8,7 @@ import 'cubit/folder_picker_cubit.dart';
 import 'cubit/folder_picker_state.dart';
 import 'folder.dart';
 import 'usecases/assign_document_to_folder.dart';
+import 'usecases/assign_note_to_folder.dart';
 import 'usecases/create_folder.dart';
 import 'usecases/delete_folder.dart';
 import 'usecases/list_folders.dart';
@@ -19,22 +20,49 @@ class FolderPickerSheet extends StatefulWidget {
 
   final int? currentFolderId;
 
-  static Future<void> show(
+  static Future<void> showForDocument(
     BuildContext context,
     int documentId,
     int? currentFolderId,
   ) {
+    final services = AppScope.of(context);
+    final assign = AssignDocumentToFolderUseCase(services.folders);
+    return _open(
+      context,
+      currentFolderId: currentFolderId,
+      onAssign: (folderId) =>
+          assign(documentId: documentId, folderId: folderId),
+    );
+  }
+
+  static Future<void> showForNote(
+    BuildContext context,
+    int noteId,
+    int? currentFolderId,
+  ) {
+    final services = AppScope.of(context);
+    final assign = AssignNoteToFolderUseCase(services.folders);
+    return _open(
+      context,
+      currentFolderId: currentFolderId,
+      onAssign: (folderId) => assign(noteId: noteId, folderId: folderId),
+    );
+  }
+
+  static Future<void> _open(
+    BuildContext context, {
+    required int? currentFolderId,
+    required AssignFolderCallback onAssign,
+  }) {
     final services = AppScope.of(context);
     return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       builder: (_) => BlocProvider(
         create: (_) => FolderPickerCubit(
-          documentId: documentId,
+          onAssign: onAssign,
           listFolders: ListFoldersUseCase(services.folders),
           createFolder: CreateFolderUseCase(services.folders),
-          assignDocumentToFolder:
-              AssignDocumentToFolderUseCase(services.folders),
           renameFolder: RenameFolderUseCase(services.folders),
           deleteFolder: DeleteFolderUseCase(services.folders),
           watchFolderChanges: WatchFolderChangesUseCase(services.folders),
