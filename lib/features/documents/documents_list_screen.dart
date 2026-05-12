@@ -640,15 +640,6 @@ class _NoteCard extends StatelessWidget {
                   Icon(Icons.chevron_right, size: 16, color: c.muted2),
                 ],
               ),
-              if (note.preview.isNotEmpty) ...[
-                const SizedBox(height: 6),
-                Text(
-                  note.preview,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: c.muted, fontSize: 13, height: 1.4),
-                ),
-              ],
               const SizedBox(height: 8),
               Row(
                 children: [
