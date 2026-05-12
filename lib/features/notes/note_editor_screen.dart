@@ -151,7 +151,8 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
                             ),
                             decoration: InputDecoration(
                               isDense: true,
-                              contentPadding: EdgeInsets.zero,
+                              contentPadding:
+                                  const EdgeInsets.symmetric(vertical: 10),
                               border: InputBorder.none,
                               hintText: 'Title',
                               hintStyle: TextStyle(
@@ -161,12 +162,12 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
                               ),
                             ),
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 6),
                           Container(
                             height: 1,
                             color: c.border,
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 10),
                           Expanded(
                             child: TextField(
                               controller: _bodyCtl,
@@ -185,7 +186,8 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
                               ),
                               decoration: InputDecoration(
                                 isDense: true,
-                                contentPadding: EdgeInsets.zero,
+                                contentPadding:
+                                    const EdgeInsets.symmetric(vertical: 14),
                                 border: InputBorder.none,
                                 hintText: 'Start writing…',
                                 hintStyle: TextStyle(
