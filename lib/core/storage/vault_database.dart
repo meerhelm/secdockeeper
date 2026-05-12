@@ -15,7 +15,7 @@ class VaultDatabase {
   }) async {
     final database = await openDatabase(
       path,
-      version: 3,
+      version: 4,
       password: password,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON;');
@@ -111,6 +111,30 @@ class VaultDatabase {
       );
     ''');
 
+    batch.execute('''
+      CREATE TABLE notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        uuid TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL DEFAULT '',
+        dek_wrapped BLOB NOT NULL,
+        dek_nonce BLOB NOT NULL,
+        dek_mac BLOB NOT NULL,
+        body_ciphertext BLOB NOT NULL,
+        body_nonce BLOB NOT NULL,
+        body_mac BLOB NOT NULL,
+        folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    ''');
+    batch.execute('CREATE INDEX idx_notes_updated_at ON notes(updated_at);');
+    batch.execute('CREATE INDEX idx_notes_folder ON notes(folder_id);');
+    batch.execute('''
+      CREATE VIRTUAL TABLE notes_fts USING fts5(
+        title
+      );
+    ''');
+
     await batch.commit(noResult: true);
   }
 
@@ -141,6 +165,33 @@ class VaultDatabase {
         INSERT INTO documents_fts(rowid, ocr_text, original_name)
         SELECT id, COALESCE(ocr_text, ''), original_name FROM documents;
       ''');
+    }
+    if (oldVersion < 4) {
+      final batch = db.batch();
+      batch.execute('''
+        CREATE TABLE notes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          uuid TEXT NOT NULL UNIQUE,
+          title TEXT NOT NULL DEFAULT '',
+          dek_wrapped BLOB NOT NULL,
+          dek_nonce BLOB NOT NULL,
+          dek_mac BLOB NOT NULL,
+          body_ciphertext BLOB NOT NULL,
+          body_nonce BLOB NOT NULL,
+          body_mac BLOB NOT NULL,
+          folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+      ''');
+      batch.execute('CREATE INDEX idx_notes_updated_at ON notes(updated_at);');
+      batch.execute('CREATE INDEX idx_notes_folder ON notes(folder_id);');
+      batch.execute('''
+        CREATE VIRTUAL TABLE notes_fts USING fts5(
+          title
+        );
+      ''');
+      await batch.commit(noResult: true);
     }
   }
 }

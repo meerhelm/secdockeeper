@@ -13,6 +13,7 @@ import '../../app/widgets/badges.dart';
 import '../../app/widgets/brand_mark.dart';
 import '../../app/widgets/icon_chip_button.dart';
 import '../folders/folder.dart';
+import '../notes/note.dart';
 import '../tags/tag.dart';
 import 'cubit/documents_list_cubit.dart';
 import 'cubit/documents_list_state.dart';
@@ -181,6 +182,54 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
     context.push(AppRoutes.settings);
   }
 
+  void _toggleMode() {
+    final cubit = context.read<DocumentsListCubit>();
+    final next = cubit.state.isNotesMode
+        ? ListMode.documents
+        : ListMode.notes;
+    cubit.setMode(next);
+  }
+
+  Future<void> _createNewNote() async {
+    final cubit = context.read<DocumentsListCubit>();
+    final note = await cubit.createNote();
+    if (!mounted) return;
+    await context.push(AppRoutes.noteDetailPath('${note.id}'));
+  }
+
+  Future<void> _confirmDeleteNote(Note note) async {
+    final c = context.c;
+    final cubit = context.read<DocumentsListCubit>();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete note'),
+        content: Text(
+          '“${note.displayTitle}” will be permanently removed from this vault.',
+          style: TextStyle(color: c.muted, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            style: TextButton.styleFrom(foregroundColor: c.fg),
+            child: const Text('Cancel'),
+          ),
+          OutlinedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: c.error,
+              side: BorderSide(color: c.error, width: 1),
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await cubit.deleteNote(note.id);
+    }
+  }
+
   String _formatTotalSize(List<Document> docs) {
     final bytes = docs.fold<int>(0, (a, b) => a + b.size);
     if (bytes < 1024) return '$bytes B';
@@ -218,6 +267,10 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
           );
         }
         final hasFilter = state.activeTagIds.isNotEmpty;
+        final notesMode = state.isNotesMode;
+        final statsLabel = notesMode
+            ? '${state.notes.length.toString().padLeft(2, '0')} notes'
+            : '${state.documents.length.toString().padLeft(2, '0')} documents · ${_formatTotalSize(state.documents)}';
 
         return Scaffold(
           backgroundColor: c.bg,
@@ -227,7 +280,9 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                 CustomScrollView(
                   slivers: [
                     SliverToBoxAdapter(child: _VaultHeader(
+                      notesMode: notesMode,
                       onLock: () => context.read<DocumentsListCubit>().lock(),
+                      onToggleMode: _toggleMode,
                       onImportShared: _importShared,
                       onExportBackup: () =>
                           context.read<DocumentsListCubit>().exportBackup(),
@@ -240,8 +295,9 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                         padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
                         child: AppSearchField(
                           controller: _searchCtl,
-                          hintText:
-                              'Search by name, content or hidden tag…',
+                          hintText: notesMode
+                              ? 'Search notes by title…'
+                              : 'Search by name, content or hidden tag…',
                           onChanged: (v) => context
                               .read<DocumentsListCubit>()
                               .setQuery(v.trim()),
@@ -267,25 +323,46 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                         folders: state.folders,
                         hasFilter: hasFilter,
                         filterCount: state.activeTagIds.length,
+                        showFilter: !notesMode,
                         onFilter: _openTagFilter,
                         onSelect: (s) =>
                             context.read<DocumentsListCubit>().setFolderScope(s),
                         onAddFolder: _showCreateFolder,
                       ),
                     ),
-                    SliverToBoxAdapter(child: _StatsRow(
-                      count: state.documents.length,
-                      sizeText: _formatTotalSize(state.documents),
-                    )),
-                    if (state.loadingDocuments)
+                    SliverToBoxAdapter(child: _StatsRow(label: statsLabel)),
+                    if (state.isLoadingActive)
                       const SliverFillRemaining(
                         hasScrollBody: false,
                         child: Center(child: CircularProgressIndicator()),
                       )
-                    else if (state.documents.isEmpty)
+                    else if (notesMode && state.notes.isEmpty)
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: _EmptyNotesState(hasQuery: state.query.isNotEmpty),
+                      )
+                    else if (!notesMode && state.documents.isEmpty)
                       const SliverFillRemaining(
                         hasScrollBody: false,
                         child: _EmptyState(),
+                      )
+                    else if (notesMode)
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 110),
+                        sliver: SliverList.separated(
+                          itemCount: state.notes.length,
+                          separatorBuilder: (_, _) => const SizedBox(height: 8),
+                          itemBuilder: (context, i) {
+                            final note = state.notes[i];
+                            return _NoteCard(
+                              note: note,
+                              onTap: () => context.push(
+                                AppRoutes.noteDetailPath('${note.id}'),
+                              ),
+                              onDelete: () => _confirmDeleteNote(note),
+                            );
+                          },
+                        ),
                       )
                     else
                       SliverPadding(
@@ -303,7 +380,9 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                   right: 16,
                   bottom: 16,
                   child: FloatingActionButton.extended(
-                    onPressed: state.busy ? null : _showAddSheet,
+                    onPressed: state.busy
+                        ? null
+                        : (notesMode ? _createNewNote : _showAddSheet),
                     icon: state.busy
                         ? SizedBox(
                             width: 18,
@@ -314,7 +393,7 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                             ),
                           )
                         : const Icon(Icons.add, size: 18),
-                    label: const Text('Add'),
+                    label: Text(notesMode ? 'New note' : 'Add'),
                   ),
                 ),
               ],
@@ -328,7 +407,9 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
 
 class _VaultHeader extends StatelessWidget {
   const _VaultHeader({
+    required this.notesMode,
     required this.onLock,
+    required this.onToggleMode,
     required this.onImportShared,
     required this.onExportBackup,
     required this.onChangePassword,
@@ -336,7 +417,9 @@ class _VaultHeader extends StatelessWidget {
     required this.onDestroyVault,
   });
 
+  final bool notesMode;
   final VoidCallback onLock;
+  final VoidCallback onToggleMode;
   final VoidCallback onImportShared;
   final VoidCallback onExportBackup;
   final VoidCallback onChangePassword;
@@ -357,10 +440,18 @@ class _VaultHeader extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'Vault',
+              notesMode ? 'Notes' : 'Vault',
               style: Theme.of(context).textTheme.titleMedium,
             ),
           ),
+          IconChipButton(
+            icon: notesMode
+                ? Icons.folder_copy_outlined
+                : Icons.sticky_note_2_outlined,
+            onTap: onToggleMode,
+            tooltip: notesMode ? 'Files' : 'Notes',
+          ),
+          const SizedBox(width: 8),
           IconChipButton(
             icon: Icons.lock_outline,
             onTap: onLock,
@@ -498,6 +589,7 @@ class _Rail extends StatelessWidget {
     required this.folders,
     required this.hasFilter,
     required this.filterCount,
+    required this.showFilter,
     required this.onFilter,
     required this.onSelect,
     required this.onAddFolder,
@@ -507,6 +599,7 @@ class _Rail extends StatelessWidget {
   final List<Folder> folders;
   final bool hasFilter;
   final int filterCount;
+  final bool showFilter;
   final VoidCallback onFilter;
   final ValueChanged<FolderScope> onSelect;
   final VoidCallback onAddFolder;
@@ -519,14 +612,16 @@ class _Rail extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
         children: [
-          AppChip(
-            label: 'Filter',
-            count: hasFilter ? filterCount : null,
-            selected: hasFilter,
-            icon: Icons.tune,
-            onTap: onFilter,
-          ),
-          const SizedBox(width: 8),
+          if (showFilter) ...[
+            AppChip(
+              label: 'Filter',
+              count: hasFilter ? filterCount : null,
+              selected: hasFilter,
+              icon: Icons.tune,
+              onTap: onFilter,
+            ),
+            const SizedBox(width: 8),
+          ],
           AppChip(
             label: 'All',
             selected: scope.isAll,
@@ -556,9 +651,8 @@ class _Rail extends StatelessWidget {
 }
 
 class _StatsRow extends StatelessWidget {
-  const _StatsRow({required this.count, required this.sizeText});
-  final int count;
-  final String sizeText;
+  const _StatsRow({required this.label});
+  final String label;
 
   @override
   Widget build(BuildContext context) {
@@ -567,7 +661,7 @@ class _StatsRow extends StatelessWidget {
       child: Row(
         children: [
           Text(
-            '${count.toString().padLeft(2, '0')} documents · $sizeText'.toUpperCase(),
+            label.toUpperCase(),
             style: AppMono.label(context, size: 10),
           ),
         ],
@@ -671,6 +765,144 @@ class _DocCard extends StatelessWidget {
       return '${pad(d.day)}.${pad(d.month)}';
     }
     return '${d.year}-${pad(d.month)}-${pad(d.day)}';
+  }
+}
+
+class _NoteCard extends StatelessWidget {
+  const _NoteCard({
+    required this.note,
+    required this.onTap,
+    required this.onDelete,
+  });
+
+  final Note note;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Material(
+      color: c.surface,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        onLongPress: onDelete,
+        child: Ink(
+          decoration: BoxDecoration(
+            border: Border.all(color: c.border, width: 1),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      note.displayTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: c.fg,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: -0.1,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(Icons.chevron_right, size: 16, color: c.muted2),
+                ],
+              ),
+              if (note.preview.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  note.preview,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: c.muted, fontSize: 13, height: 1.4),
+                ),
+              ],
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(Icons.lock_outline, size: 10, color: c.muted),
+                  const SizedBox(width: 5),
+                  Text(
+                    _formatNoteDate(note.updatedAt),
+                    style: AppMono.meta(context),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  static String _formatNoteDate(DateTime d) {
+    final now = DateTime.now();
+    String pad(int n) => n.toString().padLeft(2, '0');
+    if (d.year == now.year && d.month == now.month && d.day == now.day) {
+      return 'today ${pad(d.hour)}:${pad(d.minute)}';
+    }
+    if (d.year == now.year) {
+      return '${pad(d.day)}.${pad(d.month)} ${pad(d.hour)}:${pad(d.minute)}';
+    }
+    return '${d.year}-${pad(d.month)}-${pad(d.day)}';
+  }
+}
+
+class _EmptyNotesState extends StatelessWidget {
+  const _EmptyNotesState({required this.hasQuery});
+  final bool hasQuery;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final t = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(32, 24, 32, 100),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 96,
+            height: 96,
+            decoration: BoxDecoration(
+              color: c.surface,
+              shape: BoxShape.circle,
+              border: Border.all(color: c.borderStrong, width: 1),
+            ),
+            child: Center(
+              child: Icon(
+                hasQuery
+                    ? Icons.search_off
+                    : Icons.sticky_note_2_outlined,
+                size: 36,
+                color: c.muted,
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Text(hasQuery ? 'No notes match' : 'No notes yet',
+              style: t.headlineSmall),
+          const SizedBox(height: 8),
+          Text(
+            hasQuery
+                ? 'Try a different search term.'
+                : 'Tap “New note” to capture a thought. Notes are encrypted at rest with your vault.',
+            style: t.bodyMedium,
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
   }
 }
 

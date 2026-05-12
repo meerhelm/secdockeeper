@@ -8,6 +8,11 @@ import '../../folders/folder.dart';
 import '../../folders/usecases/create_folder.dart';
 import '../../folders/usecases/list_folders.dart';
 import '../../folders/usecases/watch_folder_changes.dart';
+import '../../notes/note.dart';
+import '../../notes/usecases/create_note.dart';
+import '../../notes/usecases/delete_note.dart';
+import '../../notes/usecases/list_notes.dart';
+import '../../notes/usecases/watch_note_changes.dart';
 import '../../sharing/usecases/import_shared_package.dart';
 import '../../tags/usecases/list_all_tags.dart';
 import '../../vault/usecases/destroy_vault.dart';
@@ -35,6 +40,10 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
     required WatchDocumentChangesUseCase watchDocumentChanges,
     required WatchFolderChangesUseCase watchFolderChanges,
     required RotateVaultKeyUseCase rotateVaultKey,
+    required ListNotesUseCase listNotes,
+    required CreateNoteUseCase createNote,
+    required DeleteNoteUseCase deleteNote,
+    required WatchNoteChangesUseCase watchNoteChanges,
   })  : _searchDocuments = searchDocuments,
         _listFolders = listFolders,
         _listAllTags = listAllTags,
@@ -46,10 +55,15 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
         _destroyVault = destroyVault,
         _createFolder = createFolder,
         _rotateVaultKey = rotateVaultKey,
+        _listNotes = listNotes,
+        _createNote = createNote,
+        _deleteNote = deleteNote,
         super(const DocumentsListState()) {
     _docSub = watchDocumentChanges().listen((_) => _refreshDocuments());
     _folderSub = watchFolderChanges().listen((_) => _refreshFolders());
+    _noteSub = watchNoteChanges().listen((_) => _refreshNotes());
     _refreshDocuments();
+    _refreshNotes();
     _refreshFolders();
     _loadAllTags();
   }
@@ -65,23 +79,32 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
   final DestroyVaultUseCase _destroyVault;
   final CreateFolderUseCase _createFolder;
   final RotateVaultKeyUseCase _rotateVaultKey;
+  final ListNotesUseCase _listNotes;
+  final CreateNoteUseCase _createNote;
+  final DeleteNoteUseCase _deleteNote;
 
   late final StreamSubscription<void> _docSub;
   late final StreamSubscription<void> _folderSub;
+  late final StreamSubscription<void> _noteSub;
+
+  void setMode(ListMode mode) {
+    if (state.mode == mode) return;
+    emit(state.copyWith(mode: mode));
+  }
 
   void setQuery(String query) {
     emit(state.copyWith(query: query));
-    _refreshDocuments();
+    _refreshActive();
   }
 
   void clearQuery() {
     emit(state.copyWith(query: ''));
-    _refreshDocuments();
+    _refreshActive();
   }
 
   void setFolderScope(FolderScope scope) {
     emit(state.copyWith(folderScope: scope));
-    _refreshDocuments();
+    _refreshActive();
   }
 
   void toggleTagFilter(int tagId) {
@@ -103,6 +126,14 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
 
   Future<void> refreshAllTags() => _loadAllTags();
 
+  void _refreshActive() {
+    if (state.isNotesMode) {
+      _refreshNotes();
+    } else {
+      _refreshDocuments();
+    }
+  }
+
   Future<void> _refreshDocuments() async {
     final s = state;
     final docs = await _searchDocuments(
@@ -113,6 +144,18 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
     );
     if (!isClosed) {
       emit(state.copyWith(documents: docs, loadingDocuments: false));
+    }
+  }
+
+  Future<void> _refreshNotes() async {
+    final s = state;
+    final notes = await _listNotes(
+      query: s.query.isEmpty ? null : s.query,
+      folderId: s.folderScope.specificId,
+      onlyUnassignedFolder: s.folderScope.isUnassigned,
+    );
+    if (!isClosed) {
+      emit(state.copyWith(notes: notes, loadingNotes: false));
     }
   }
 
@@ -210,6 +253,22 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
     }
   }
 
+  Future<Note> createNote() => _createNote();
+
+  Future<void> deleteNote(int id) async {
+    emit(state.copyWith(busy: true, clearError: true, clearMessage: true));
+    try {
+      await _deleteNote(id);
+      if (!isClosed) {
+        emit(state.copyWith(busy: false, message: 'Note deleted'));
+      }
+    } catch (e) {
+      if (!isClosed) {
+        emit(state.copyWith(busy: false, error: 'Delete failed: $e'));
+      }
+    }
+  }
+
   Future<void> lock() async {
     await _lockVault();
     // Vault state changes → router redirects → cubit closes.
@@ -228,6 +287,7 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
   Future<void> close() async {
     await _docSub.cancel();
     await _folderSub.cancel();
+    await _noteSub.cancel();
     return super.close();
   }
 }

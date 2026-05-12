@@ -20,6 +20,14 @@ import '../features/folders/usecases/create_folder.dart';
 import '../features/folders/usecases/get_folder.dart';
 import '../features/folders/usecases/list_folders.dart';
 import '../features/folders/usecases/watch_folder_changes.dart';
+import '../features/notes/cubit/note_editor_cubit.dart';
+import '../features/notes/note_editor_screen.dart';
+import '../features/notes/usecases/create_note.dart';
+import '../features/notes/usecases/delete_note.dart';
+import '../features/notes/usecases/get_note.dart';
+import '../features/notes/usecases/list_notes.dart';
+import '../features/notes/usecases/save_note.dart';
+import '../features/notes/usecases/watch_note_changes.dart';
 import '../features/onboarding/cubit/onboarding_cubit.dart';
 import '../features/onboarding/onboarding_screen.dart';
 import '../features/security/usecases/biometric_unlock.dart';
@@ -159,8 +167,13 @@ GoRouter buildAppRouter({required VaultService vault}) {
                 vault: s.vault,
                 documents: s.documents,
                 hiddenTags: s.hiddenTags,
+                notes: s.notes,
                 paths: s.paths,
               ),
+              listNotes: ListNotesUseCase(s.notes),
+              createNote: CreateNoteUseCase(s.notes),
+              deleteNote: DeleteNoteUseCase(s.notes),
+              watchNoteChanges: WatchNoteChangesUseCase(s.notes),
             ),
             child: const DocumentsListScreen(),
           );
@@ -196,6 +209,24 @@ GoRouter buildAppRouter({required VaultService vault}) {
             },
           ),
         ],
+      ),
+      GoRoute(
+        path: AppRoutes.noteDetail,
+        builder: (context, state) {
+          final id = int.parse(state.pathParameters['id']!);
+          final s = AppScope.of(context);
+          return BlocProvider(
+            create: (_) => NoteEditorCubit(
+              noteId: id,
+              getNote: GetNoteUseCase(s.notes),
+              saveNote: SaveNoteUseCase(s.notes),
+              deleteNote: DeleteNoteUseCase(s.notes),
+              getFolder: GetFolderUseCase(s.folders),
+              watchFolderChanges: WatchFolderChangesUseCase(s.folders),
+            ),
+            child: const NoteEditorScreen(),
+          );
+        },
       ),
       GoRoute(
         path: AppRoutes.settings,

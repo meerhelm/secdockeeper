@@ -170,7 +170,7 @@ class DocumentDetailScreen extends StatelessWidget {
                                 subtitle: state.folder == null
                                     ? null
                                     : '${state.folder!.documentCount} document${state.folder!.documentCount == 1 ? "" : "s"}',
-                                onTap: () => FolderPickerSheet.show(
+                                onTap: () => FolderPickerSheet.showForDocument(
                                   context, doc.id, doc.folderId,
                                 ),
                               ),

@@ -8,6 +8,7 @@ import '../../../core/storage/paths.dart';
 import '../../../core/storage/vault_database.dart';
 import '../../documents/document_repository.dart';
 import '../../hidden_tags/hidden_tag_repository.dart';
+import '../../notes/note_repository.dart';
 import '../vault_descriptor.dart';
 import '../vault_service.dart';
 
@@ -16,15 +17,18 @@ class RotateVaultKeyUseCase {
     required VaultService vault,
     required DocumentRepository documents,
     required HiddenTagRepository hiddenTags,
+    required NoteRepository notes,
     required VaultPaths paths,
   })  : _vault = vault,
         _documents = documents,
         _hiddenTags = hiddenTags,
+        _notes = notes,
         _paths = paths;
 
   final VaultService _vault;
   final DocumentRepository _documents;
   final HiddenTagRepository _hiddenTags;
+  final NoteRepository _notes;
   final VaultPaths _paths;
 
   Future<void> call(String newMasterPassword) async {
@@ -65,6 +69,21 @@ class RotateVaultKeyUseCase {
         documentUpdates[entry.key] = await crypto.wrapDek(kek: newKek, dek: dek);
       }
 
+      // 3b. Re-wrap note DEKs under the new KEK.
+      final allNoteCrypto = await _notes.getAllCrypto();
+      final noteUpdates = <int, WrappedDek>{};
+      for (final entry in allNoteCrypto.entries) {
+        final dek = await crypto.unwrapDek(
+          kek: oldKek,
+          wrapped: WrappedDek(
+            nonce: entry.value.dekNonce,
+            ciphertext: entry.value.dekWrapped,
+            mac: entry.value.dekMac,
+          ),
+        );
+        noteUpdates[entry.key] = await crypto.wrapDek(kek: newKek, dek: dek);
+      }
+
       // 4. Prepare Hidden Tag re-encryption and re-hashing updates
       final allHiddenTags = await _hiddenTags.getAllEntries();
       final hiddenTagUpdates = <HiddenTagUpdate>[];
@@ -101,6 +120,19 @@ class RotateVaultKeyUseCase {
               'dek_nonce': update.value.nonce,
               'dek_mac': update.value.mac,
               'updated_at': DateTime.now().millisecondsSinceEpoch,
+            },
+            where: 'id = ?',
+            whereArgs: [update.key],
+          );
+        }
+
+        for (final update in noteUpdates.entries) {
+          await txn.update(
+            'notes',
+            {
+              'dek_wrapped': update.value.ciphertext,
+              'dek_nonce': update.value.nonce,
+              'dek_mac': update.value.mac,
             },
             where: 'id = ?',
             whereArgs: [update.key],

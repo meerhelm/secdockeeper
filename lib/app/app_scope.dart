@@ -7,6 +7,7 @@ import '../features/documents/document_open_service.dart';
 import '../features/documents/document_repository.dart';
 import '../features/folders/folder_repository.dart';
 import '../features/hidden_tags/hidden_tag_repository.dart';
+import '../features/notes/note_repository.dart';
 import '../features/ocr/auto_classifier.dart';
 import '../features/ocr/ocr_service.dart';
 import '../features/scanner/document_scanner_service.dart';
@@ -32,6 +33,7 @@ class AppServices {
   late final TagRepository tags = TagRepository(vault);
   late final HiddenTagRepository hiddenTags = HiddenTagRepository(vault);
   late final FolderRepository folders = FolderRepository(vault);
+  late final NoteRepository notes = NoteRepository(vault);
   late final OcrService ocr = OcrService();
   late final AutoClassifier classifier = AutoClassifier();
   late final DocumentImportService importer = DocumentImportService(
