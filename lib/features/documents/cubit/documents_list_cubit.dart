@@ -1,9 +1,7 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../backup/usecases/export_backup.dart';
 import '../../folders/folder.dart';
 import '../../folders/usecases/create_folder.dart';
 import '../../folders/usecases/list_folders.dart';
@@ -13,11 +11,8 @@ import '../../notes/usecases/create_note.dart';
 import '../../notes/usecases/delete_note.dart';
 import '../../notes/usecases/list_notes.dart';
 import '../../notes/usecases/watch_note_changes.dart';
-import '../../sharing/usecases/import_shared_package.dart';
 import '../../tags/usecases/list_all_tags.dart';
-import '../../vault/usecases/destroy_vault.dart';
 import '../../vault/usecases/lock_vault.dart';
-import '../../vault/usecases/rotate_vault_key.dart';
 import '../folder_scope.dart';
 import '../usecases/import_files.dart';
 import '../usecases/scan_document.dart';
@@ -32,14 +27,10 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
     required ListAllTagsUseCase listAllTags,
     required ImportFilesUseCase importFiles,
     required ScanDocumentUseCase scanDocument,
-    required ImportSharedPackageUseCase importSharedPackage,
-    required ExportBackupUseCase exportBackup,
     required LockVaultUseCase lockVault,
-    required DestroyVaultUseCase destroyVault,
     required CreateFolderUseCase createFolder,
     required WatchDocumentChangesUseCase watchDocumentChanges,
     required WatchFolderChangesUseCase watchFolderChanges,
-    required RotateVaultKeyUseCase rotateVaultKey,
     required ListNotesUseCase listNotes,
     required CreateNoteUseCase createNote,
     required DeleteNoteUseCase deleteNote,
@@ -49,12 +40,8 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
         _listAllTags = listAllTags,
         _importFiles = importFiles,
         _scanDocument = scanDocument,
-        _importSharedPackage = importSharedPackage,
-        _exportBackup = exportBackup,
         _lockVault = lockVault,
-        _destroyVault = destroyVault,
         _createFolder = createFolder,
-        _rotateVaultKey = rotateVaultKey,
         _listNotes = listNotes,
         _createNote = createNote,
         _deleteNote = deleteNote,
@@ -73,12 +60,8 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
   final ListAllTagsUseCase _listAllTags;
   final ImportFilesUseCase _importFiles;
   final ScanDocumentUseCase _scanDocument;
-  final ImportSharedPackageUseCase _importSharedPackage;
-  final ExportBackupUseCase _exportBackup;
   final LockVaultUseCase _lockVault;
-  final DestroyVaultUseCase _destroyVault;
   final CreateFolderUseCase _createFolder;
-  final RotateVaultKeyUseCase _rotateVaultKey;
   final ListNotesUseCase _listNotes;
   final CreateNoteUseCase _createNote;
   final DeleteNoteUseCase _deleteNote;
@@ -199,60 +182,6 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
     }
   }
 
-  Future<void> importSharedPackage({
-    required File blobFile,
-    required File keyFile,
-  }) async {
-    emit(state.copyWith(busy: true, clearError: true, clearMessage: true));
-    try {
-      await _importSharedPackage(blobFile: blobFile, keyFile: keyFile);
-      if (!isClosed) {
-        emit(state.copyWith(
-          busy: false,
-          message: 'Shared document imported',
-        ));
-      }
-    } catch (e) {
-      if (!isClosed) {
-        emit(state.copyWith(busy: false, error: 'Import failed: $e'));
-      }
-    }
-  }
-
-  Future<void> exportBackup() async {
-    emit(state.copyWith(busy: true, clearError: true, clearMessage: true));
-    try {
-      final archive = await _exportBackup();
-      if (!isClosed) {
-        emit(state.copyWith(
-          busy: false,
-          message: 'Backup ready: ${archive.file.path.split('/').last}',
-        ));
-      }
-    } catch (e) {
-      if (!isClosed) {
-        emit(state.copyWith(busy: false, error: 'Backup failed: $e'));
-      }
-    }
-  }
-
-  Future<void> changeMasterPassword(String newPassword) async {
-    emit(state.copyWith(busy: true, clearError: true, clearMessage: true));
-    try {
-      await _rotateVaultKey(newPassword);
-      if (!isClosed) {
-        emit(state.copyWith(
-          busy: false,
-          message: 'Master password changed successfully',
-        ));
-      }
-    } catch (e) {
-      if (!isClosed) {
-        emit(state.copyWith(busy: false, error: 'Failed to change password: $e'));
-      }
-    }
-  }
-
   Future<Note> createNote() => _createNote();
 
   Future<void> deleteNote(int id) async {
@@ -272,11 +201,6 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
   Future<void> lock() async {
     await _lockVault();
     // Vault state changes → router redirects → cubit closes.
-  }
-
-  Future<void> destroyVault() async {
-    await _destroyVault();
-    // Vault state changes → uninitialized → router redirects to onboarding.
   }
 
   Future<Folder> createFolder(String name) async {

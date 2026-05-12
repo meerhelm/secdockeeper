@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -21,8 +19,6 @@ import 'document.dart';
 import 'folder_scope.dart';
 import 'usecases/import_files.dart';
 import 'widgets/document_thumb.dart';
-import '../vault/widgets/change_master_password_dialog.dart';
-import '../vault/widgets/destroy_vault_dialog.dart';
 
 class DocumentsListScreen extends StatefulWidget {
   const DocumentsListScreen({super.key});
@@ -84,31 +80,6 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
     await cubit.importFiles(inputs);
   }
 
-  Future<void> _importShared() async {
-    final cubit = context.read<DocumentsListCubit>();
-    final blobPick = await FilePicker.pickFiles(
-      dialogTitle: 'Pick the .sdkblob file',
-      type: FileType.any,
-    );
-    if (blobPick == null || blobPick.files.isEmpty) return;
-    final blobPath = blobPick.files.single.path;
-    if (blobPath == null) return;
-
-    if (!mounted) return;
-    final keyPick = await FilePicker.pickFiles(
-      dialogTitle: 'Pick the matching .sdkkey.json file',
-      type: FileType.any,
-    );
-    if (keyPick == null || keyPick.files.isEmpty) return;
-    final keyPath = keyPick.files.single.path;
-    if (keyPath == null) return;
-
-    await cubit.importSharedPackage(
-      blobFile: File(blobPath),
-      keyFile: File(keyPath),
-    );
-  }
-
   Future<void> _openTagFilter() async {
     final cubit = context.read<DocumentsListCubit>();
     await cubit.refreshAllTags();
@@ -153,28 +124,6 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
     if (name != null && name.trim().isNotEmpty) {
       final folder = await cubit.createFolder(name.trim());
       cubit.setFolderScope(FolderScope.specific(folder.id));
-    }
-  }
-
-  Future<void> _showChangePassword() async {
-    final cubit = context.read<DocumentsListCubit>();
-    final newPassword = await showDialog<String>(
-      context: context,
-      builder: (ctx) => const ChangeMasterPasswordDialog(),
-    );
-    if (newPassword != null) {
-      await cubit.changeMasterPassword(newPassword);
-    }
-  }
-
-  Future<void> _showDestroyVault() async {
-    final cubit = context.read<DocumentsListCubit>();
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => const DestroyVaultDialog(),
-    );
-    if (confirmed == true) {
-      await cubit.destroyVault();
     }
   }
 
@@ -283,12 +232,7 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
                       notesMode: notesMode,
                       onLock: () => context.read<DocumentsListCubit>().lock(),
                       onToggleMode: _toggleMode,
-                      onImportShared: _importShared,
-                      onExportBackup: () =>
-                          context.read<DocumentsListCubit>().exportBackup(),
-                      onChangePassword: _showChangePassword,
                       onSettings: _openSettings,
-                      onDestroyVault: _showDestroyVault,
                     )),
                     SliverToBoxAdapter(
                       child: Padding(
@@ -410,21 +354,13 @@ class _VaultHeader extends StatelessWidget {
     required this.notesMode,
     required this.onLock,
     required this.onToggleMode,
-    required this.onImportShared,
-    required this.onExportBackup,
-    required this.onChangePassword,
     required this.onSettings,
-    required this.onDestroyVault,
   });
 
   final bool notesMode;
   final VoidCallback onLock;
   final VoidCallback onToggleMode;
-  final VoidCallback onImportShared;
-  final VoidCallback onExportBackup;
-  final VoidCallback onChangePassword;
   final VoidCallback onSettings;
-  final VoidCallback onDestroyVault;
 
   @override
   Widget build(BuildContext context) {
@@ -458,127 +394,13 @@ class _VaultHeader extends StatelessWidget {
             tooltip: 'Lock',
           ),
           const SizedBox(width: 8),
-          _OverflowMenu(
-            onImportShared: onImportShared,
-            onExportBackup: onExportBackup,
-            onChangePassword: onChangePassword,
-            onSettings: onSettings,
-            onDestroyVault: onDestroyVault,
+          IconChipButton(
+            icon: Icons.settings_outlined,
+            onTap: onSettings,
+            tooltip: 'Settings',
           ),
         ],
       ),
-    );
-  }
-}
-
-class _OverflowMenu extends StatelessWidget {
-  const _OverflowMenu({
-    required this.onImportShared,
-    required this.onExportBackup,
-    required this.onChangePassword,
-    required this.onSettings,
-    required this.onDestroyVault,
-  });
-  final VoidCallback onImportShared;
-  final VoidCallback onExportBackup;
-  final VoidCallback onChangePassword;
-  final VoidCallback onSettings;
-  final VoidCallback onDestroyVault;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.c;
-    return PopupMenuButton<String>(
-      onSelected: (v) {
-        if (v == 'import_share') onImportShared();
-        if (v == 'export_backup') onExportBackup();
-        if (v == 'change_password') onChangePassword();
-        if (v == 'settings') onSettings();
-        if (v == 'destroy_vault') onDestroyVault();
-      },
-      offset: const Offset(0, 44),
-      tooltip: 'More',
-      icon: Icon(Icons.more_horiz, size: 18, color: c.fg),
-      itemBuilder: (_) => [
-        PopupMenuItem(
-          value: 'import_share',
-          child: _MenuItem(
-            icon: Icons.upload_outlined,
-            title: 'Import shared package',
-            sub: '.sdkblob + .sdkkey.json',
-          ),
-        ),
-        PopupMenuItem(
-          value: 'export_backup',
-          child: _MenuItem(
-            icon: Icons.download_outlined,
-            title: 'Export full backup',
-            sub: 'encrypted .zip · password-protected',
-          ),
-        ),
-        PopupMenuItem(
-          value: 'change_password',
-          child: _MenuItem(
-            icon: Icons.key_outlined,
-            title: 'Change master password',
-            sub: 're-encrypts all document keys',
-          ),
-        ),
-        PopupMenuItem(
-          value: 'settings',
-          child: _MenuItem(
-            icon: Icons.tune,
-            title: 'Settings',
-            sub: 'panic mode and other tunables',
-          ),
-        ),
-        const PopupMenuDivider(),
-        PopupMenuItem(
-          value: 'destroy_vault',
-          child: _MenuItem(
-            icon: Icons.delete_forever_outlined,
-            title: 'Destroy vault',
-            sub: 'wipes every document — irreversible',
-            danger: true,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _MenuItem extends StatelessWidget {
-  const _MenuItem({
-    required this.icon,
-    required this.title,
-    required this.sub,
-    this.danger = false,
-  });
-  final IconData icon;
-  final String title;
-  final String sub;
-  final bool danger;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.c;
-    final iconColor = danger ? c.error : c.muted;
-    final titleColor = danger ? c.error : c.fg;
-    return Row(
-      children: [
-        Icon(icon, size: 16, color: iconColor),
-        const SizedBox(width: 12),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(title, style: TextStyle(fontSize: 14, color: titleColor)),
-            const SizedBox(height: 2),
-            Text(sub,
-                style: AppMono.of(context, size: 10, color: c.muted)),
-          ],
-        ),
-      ],
     );
   }
 }
