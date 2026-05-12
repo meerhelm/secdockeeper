@@ -128,6 +128,28 @@ class VaultService extends ChangeNotifier {
 
   void notifyExternalChange() => notifyListeners();
 
+  /// Confirms that [password] derives the same KEK as the one currently held in
+  /// memory. Does not touch the open DB handle. Used by settings screens that
+  /// need to prove the user knows the master password (e.g. before storing it
+  /// for biometric unlock).
+  Future<bool> verifyPassword(String password) async {
+    final current = _kek;
+    if (current == null) return false;
+    final descriptor = await VaultDescriptor.load(_paths);
+    final candidate = await Kdf(params: descriptor.kdf).deriveKek(
+      password: password,
+      salt: descriptor.salt,
+    );
+    final a = await current.extractBytes();
+    final b = await candidate.extractBytes();
+    if (a.length != b.length) return false;
+    var diff = 0;
+    for (var i = 0; i < a.length; i++) {
+      diff |= a[i] ^ b[i];
+    }
+    return diff == 0;
+  }
+
   Future<void> lock() async {
     final v = _vaultDb;
     _vaultDb = null;

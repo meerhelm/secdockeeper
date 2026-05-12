@@ -337,20 +337,23 @@ class _Hero extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Row(
-                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.lock_outline,
                         size: 11,
                         color: Colors.white.withValues(alpha: 0.85)),
                     const SizedBox(width: 5),
-                    Text(
-                      'AES-256-GCM · ENCRYPTED AT REST',
-                      style: AppMono.of(
-                        context,
-                        size: 10,
-                        color: Colors.white.withValues(alpha: 0.85),
-                        letterSpacing: 1.4,
-                        weight: FontWeight.w500,
+                    Flexible(
+                      child: Text(
+                        'AES-256-GCM · ENCRYPTED AT REST',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppMono.of(
+                          context,
+                          size: 10,
+                          color: Colors.white.withValues(alpha: 0.85),
+                          letterSpacing: 1.4,
+                          weight: FontWeight.w500,
+                        ),
                       ),
                     ),
                   ],

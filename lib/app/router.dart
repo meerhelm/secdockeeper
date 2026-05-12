@@ -31,6 +31,7 @@ import '../features/notes/usecases/watch_note_changes.dart';
 import '../features/onboarding/cubit/onboarding_cubit.dart';
 import '../features/onboarding/onboarding_screen.dart';
 import '../features/security/usecases/biometric_unlock.dart';
+import '../features/security/usecases/disable_biometrics.dart';
 import '../features/security/usecases/enable_biometrics.dart';
 import '../features/security/usecases/is_biometric_available.dart';
 import '../features/security/usecases/is_biometric_unlock_ready.dart';
@@ -50,6 +51,7 @@ import '../features/vault/usecases/destroy_vault.dart';
 import '../features/vault/usecases/initialize_vault.dart';
 import '../features/vault/usecases/lock_vault.dart';
 import '../features/vault/usecases/rotate_vault_key.dart';
+import '../features/vault/usecases/verify_master_password.dart';
 import '../features/vault/usecases/unlock_vault.dart';
 import '../features/vault/vault_service.dart';
 import 'app_scope.dart';
@@ -145,31 +147,14 @@ GoRouter buildAppRouter({required VaultService vault}) {
                 scanner: s.scanner,
                 importer: s.importer,
               ),
-              importSharedPackage: ImportSharedPackageUseCase(s.share),
-              exportBackup: ExportBackupUseCase(
-                backup: s.backup,
-                opener: s.opener,
-              ),
               lockVault: LockVaultUseCase(
                 vault: s.vault,
                 opener: s.opener,
-              ),
-              destroyVault: DestroyVaultUseCase(
-                vault: s.vault,
-                opener: s.opener,
-                lockSettings: s.lockSettings,
               ),
               createFolder: CreateFolderUseCase(s.folders),
               watchDocumentChanges:
                   WatchDocumentChangesUseCase(s.documents),
               watchFolderChanges: WatchFolderChangesUseCase(s.folders),
-              rotateVaultKey: RotateVaultKeyUseCase(
-                vault: s.vault,
-                documents: s.documents,
-                hiddenTags: s.hiddenTags,
-                notes: s.notes,
-                paths: s.paths,
-              ),
               listNotes: ListNotesUseCase(s.notes),
               createNote: CreateNoteUseCase(s.notes),
               deleteNote: DeleteNoteUseCase(s.notes),
@@ -236,6 +221,27 @@ GoRouter buildAppRouter({required VaultService vault}) {
             create: (_) => SettingsCubit(
               lockSettings: s.lockSettings,
               setPanicAction: SetPanicActionUseCase(s.lockSettings),
+              importSharedPackage: ImportSharedPackageUseCase(s.share),
+              exportBackup: ExportBackupUseCase(
+                backup: s.backup,
+                opener: s.opener,
+              ),
+              rotateVaultKey: RotateVaultKeyUseCase(
+                vault: s.vault,
+                documents: s.documents,
+                hiddenTags: s.hiddenTags,
+                notes: s.notes,
+                paths: s.paths,
+              ),
+              destroyVault: DestroyVaultUseCase(
+                vault: s.vault,
+                opener: s.opener,
+                lockSettings: s.lockSettings,
+              ),
+              isBiometricAvailable: IsBiometricAvailableUseCase(s.biometrics),
+              enableBiometrics: EnableBiometricsUseCase(s.lockSettings),
+              disableBiometrics: DisableBiometricsUseCase(s.lockSettings),
+              verifyMasterPassword: VerifyMasterPasswordUseCase(s.vault),
             ),
             child: const SettingsScreen(),
           );
