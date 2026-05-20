@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/logging/app_logger.dart';
 import '../../folders/usecases/get_folder.dart';
 import '../../folders/usecases/watch_folder_changes.dart';
 import '../usecases/delete_note.dart';
@@ -37,29 +38,45 @@ class NoteEditorCubit extends Cubit<NoteEditorState> {
   static const _autosaveDelay = Duration(milliseconds: 600);
 
   Future<void> _load() async {
-    final note = await _getNote(noteId);
-    if (isClosed) return;
-    if (note == null) {
-      emit(state.copyWith(popRequested: true));
-      return;
+    try {
+      final note = await _getNote(noteId);
+      if (isClosed) return;
+      if (note == null) {
+        emit(state.copyWith(loading: false, popRequested: true));
+        return;
+      }
+      emit(state.copyWith(
+        note: note,
+        title: note.title,
+        body: note.body,
+        loading: false,
+        dirty: false,
+      ));
+      await _reloadFolder();
+    } catch (e, st) {
+      log.e('[note_editor] load failed', error: e, stackTrace: st);
+      if (!isClosed) {
+        emit(state.copyWith(
+          loading: false,
+          error: 'Failed to open note: $e',
+          popRequested: true,
+        ));
+      }
     }
-    emit(state.copyWith(
-      note: note,
-      title: note.title,
-      body: note.body,
-      loading: false,
-      dirty: false,
-    ));
-    await _reloadFolder();
   }
 
   Future<void> _reloadFromDb() async {
     if (state.note == null) return;
-    final note = await _getNote(noteId);
-    if (isClosed || note == null) return;
-    // Preserve the user's unsaved edits; just refresh folder linkage.
-    emit(state.copyWith(note: note));
-    await _reloadFolder();
+    try {
+      final note = await _getNote(noteId);
+      if (isClosed || note == null) return;
+      // Preserve the user's unsaved edits; just refresh folder linkage.
+      emit(state.copyWith(note: note));
+      await _reloadFolder();
+    } catch (e, st) {
+      // Ignore — the editor already shows the in-memory copy.
+      log.w('[note_editor] reload-from-db failed', error: e, stackTrace: st);
+    }
   }
 
   Future<void> _reloadFolder() async {
@@ -104,7 +121,8 @@ class NoteEditorCubit extends Cubit<NoteEditorState> {
       if (!isClosed) {
         emit(state.copyWith(saving: false, dirty: false));
       }
-    } catch (e) {
+    } catch (e, st) {
+      log.e('[note_editor] save failed', error: e, stackTrace: st);
       if (!isClosed) {
         emit(state.copyWith(saving: false, error: 'Save failed: $e'));
       }
@@ -121,7 +139,8 @@ class NoteEditorCubit extends Cubit<NoteEditorState> {
       if (!isClosed) {
         emit(state.copyWith(saving: false, popRequested: true));
       }
-    } catch (e) {
+    } catch (e, st) {
+      log.e('[note_editor] delete failed', error: e, stackTrace: st);
       if (!isClosed) {
         emit(state.copyWith(saving: false, error: 'Delete failed: $e'));
       }
@@ -139,7 +158,10 @@ class NoteEditorCubit extends Cubit<NoteEditorState> {
           title: state.title,
           body: state.body,
         );
-      } catch (_) {}
+      } catch (e, st) {
+        log.w('[note_editor] close-time autosave failed',
+            error: e, stackTrace: st);
+      }
     }
     return super.close();
   }

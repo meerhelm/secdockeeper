@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/logging/app_logger.dart';
 import '../usecases/assign_tag.dart';
 import '../usecases/list_all_tags.dart';
 import '../usecases/list_tags_for_document.dart';
@@ -68,7 +69,8 @@ class TagPickerCubit extends Cubit<TagPickerState> {
         await _unassignTag(documentId: documentId, tagId: tagId);
       }
       // change stream → _refresh()
-    } catch (e) {
+    } catch (e, st) {
+      log.e('[tag_picker] toggle assign failed', error: e, stackTrace: st);
       if (!isClosed) emit(state.copyWith(error: 'Failed: $e'));
     }
   }
@@ -81,7 +83,8 @@ class TagPickerCubit extends Cubit<TagPickerState> {
       final tag = await _upsertTag(trimmed);
       await _assignTag(documentId: documentId, tagId: tag.id);
       if (!isClosed) emit(state.copyWith(busy: false, query: ''));
-    } catch (e) {
+    } catch (e, st) {
+      log.e('[tag_picker] create-and-assign failed', error: e, stackTrace: st);
       if (!isClosed) {
         emit(state.copyWith(busy: false, error: 'Failed: $e'));
       }

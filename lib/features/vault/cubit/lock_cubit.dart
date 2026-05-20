@@ -1,5 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/logging/app_logger.dart';
 import '../../security/lock_settings.dart';
 import '../../security/usecases/biometric_unlock.dart';
 import '../../security/usecases/is_biometric_unlock_ready.dart';
@@ -65,7 +66,8 @@ class LockCubit extends Cubit<VaultLockState> {
         return;
       }
       await _handleFailure();
-    } catch (e) {
+    } catch (e, st) {
+      log.e('[lock] unlock submit failed', error: e, stackTrace: st);
       if (!isClosed) {
         emit(state.copyWith(busy: false, error: 'Failed to unlock: $e'));
       }

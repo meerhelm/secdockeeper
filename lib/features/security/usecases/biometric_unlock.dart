@@ -1,3 +1,4 @@
+import '../../../core/logging/app_logger.dart';
 import '../../vault/vault_service.dart';
 import '../biometric_service.dart';
 import '../lock_settings.dart';
@@ -60,7 +61,8 @@ class BiometricUnlockUseCase {
         return const BiometricUnlockInvalidStoredPassword();
       }
       return const BiometricUnlockSuccess();
-    } catch (e) {
+    } catch (e, st) {
+      log.e('[biometric_unlock] failed', error: e, stackTrace: st);
       return BiometricUnlockFailed(e);
     }
   }

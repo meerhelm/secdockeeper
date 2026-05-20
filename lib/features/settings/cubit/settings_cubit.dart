@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/logging/app_logger.dart';
 import '../../backup/usecases/export_backup.dart';
 import '../../security/lock_settings.dart';
 import '../../security/usecases/disable_biometrics.dart';
@@ -135,7 +136,8 @@ class SettingsCubit extends Cubit<SettingsState> {
       if (!isClosed) {
         emit(state.copyWith(busy: false, message: 'Shared document imported'));
       }
-    } catch (e) {
+    } catch (e, st) {
+      log.e('[settings] import shared package failed', error: e, stackTrace: st);
       if (!isClosed) {
         emit(state.copyWith(busy: false, error: 'Import failed: $e'));
       }
@@ -152,7 +154,8 @@ class SettingsCubit extends Cubit<SettingsState> {
           message: 'Backup ready: ${archive.file.path.split('/').last}',
         ));
       }
-    } catch (e) {
+    } catch (e, st) {
+      log.e('[settings] backup export failed', error: e, stackTrace: st);
       if (!isClosed) {
         emit(state.copyWith(busy: false, error: 'Backup failed: $e'));
       }
@@ -169,7 +172,9 @@ class SettingsCubit extends Cubit<SettingsState> {
           message: 'Master password changed successfully',
         ));
       }
-    } catch (e) {
+    } catch (e, st) {
+      log.e('[settings] master password rotation failed',
+          error: e, stackTrace: st);
       if (!isClosed) {
         emit(state.copyWith(busy: false, error: 'Failed to change password: $e'));
       }

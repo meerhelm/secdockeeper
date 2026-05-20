@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/logging/app_logger.dart';
 import '../usecases/create_folder.dart';
 import '../usecases/delete_folder.dart';
 import '../usecases/list_folders.dart';
@@ -47,7 +48,8 @@ class FolderPickerCubit extends Cubit<FolderPickerState> {
     try {
       await _onAssign(folderId);
       if (!isClosed) emit(state.copyWith(busy: false, popRequested: true));
-    } catch (e) {
+    } catch (e, st) {
+      log.e('[folder_picker] select failed', error: e, stackTrace: st);
       if (!isClosed) {
         emit(state.copyWith(busy: false, error: 'Failed: $e'));
       }
@@ -62,7 +64,9 @@ class FolderPickerCubit extends Cubit<FolderPickerState> {
       final folder = await _createFolder(trimmed);
       await _onAssign(folder.id);
       if (!isClosed) emit(state.copyWith(busy: false, popRequested: true));
-    } catch (e) {
+    } catch (e, st) {
+      log.e('[folder_picker] create-and-assign failed',
+          error: e, stackTrace: st);
       if (!isClosed) {
         emit(state.copyWith(busy: false, error: 'Failed: $e'));
       }
@@ -74,7 +78,8 @@ class FolderPickerCubit extends Cubit<FolderPickerState> {
     if (trimmed.isEmpty) return;
     try {
       await _renameFolder(id: id, newName: trimmed);
-    } catch (e) {
+    } catch (e, st) {
+      log.e('[folder_picker] rename failed', error: e, stackTrace: st);
       if (!isClosed) emit(state.copyWith(error: 'Rename failed: $e'));
     }
   }
@@ -82,7 +87,8 @@ class FolderPickerCubit extends Cubit<FolderPickerState> {
   Future<void> delete(int id) async {
     try {
       await _deleteFolder(id);
-    } catch (e) {
+    } catch (e, st) {
+      log.e('[folder_picker] delete failed', error: e, stackTrace: st);
       if (!isClosed) emit(state.copyWith(error: 'Delete failed: $e'));
     }
   }

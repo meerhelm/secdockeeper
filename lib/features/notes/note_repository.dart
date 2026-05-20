@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/crypto/aead.dart';
 import '../../core/crypto/vault_crypto.dart';
+import '../../core/logging/app_logger.dart';
 import '../vault/vault_service.dart';
 import 'note.dart';
 
@@ -90,7 +91,12 @@ class NoteRepository {
     final rows = await _db.rawQuery(sql, args);
     final notes = <Note>[];
     for (final row in rows) {
-      notes.add(await _hydrate(row));
+      try {
+        notes.add(await _hydrate(row));
+      } catch (e, st) {
+        log.e('[note_repo] _hydrate failed for row id=${row['id']}',
+            error: e, stackTrace: st);
+      }
     }
     return notes;
   }
@@ -217,11 +223,14 @@ class NoteRepository {
         mac: row['dek_mac']! as Uint8List,
       ),
     );
+    // sqflite returns empty BLOBs as `null` in the column map, so we can't use
+    // `!` here — an empty body (the default for a freshly created note)
+    // legitimately encrypts to an empty ciphertext.
     final plaintext = await crypto.decryptBlob(
       dek: dek,
       sealed: SealedBytes(
         nonce: row['body_nonce']! as Uint8List,
-        ciphertext: row['body_ciphertext']! as Uint8List,
+        ciphertext: (row['body_ciphertext'] as Uint8List?) ?? Uint8List(0),
         mac: row['body_mac']! as Uint8List,
       ),
     );

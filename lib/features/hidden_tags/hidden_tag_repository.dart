@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 
 import '../../core/crypto/aead.dart';
+import '../../core/logging/app_logger.dart';
 import '../vault/vault_service.dart';
 
 class HiddenTagRepository {
@@ -78,7 +79,10 @@ class HiddenTagRepository {
           ),
         );
         out.add(utf8.decode(plaintext));
-      } catch (_) {}
+      } catch (e, st) {
+        log.w('[hidden_tags] failed to decrypt tag name entry',
+            error: e, stackTrace: st);
+      }
     }
     out.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     return out;

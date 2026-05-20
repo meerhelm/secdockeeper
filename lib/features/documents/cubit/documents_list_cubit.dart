@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/logging/app_logger.dart';
 import '../../folders/folder.dart';
 import '../../folders/usecases/create_folder.dart';
 import '../../folders/usecases/list_folders.dart';
@@ -118,27 +119,48 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
   }
 
   Future<void> _refreshDocuments() async {
-    final s = state;
-    final docs = await _searchDocuments(
-      query: s.query.isEmpty ? null : s.query,
-      tagIds: s.activeTagIds.isEmpty ? null : s.activeTagIds.toList(),
-      folderId: s.folderScope.specificId,
-      onlyUnassignedFolder: s.folderScope.isUnassigned,
-    );
-    if (!isClosed) {
-      emit(state.copyWith(documents: docs, loadingDocuments: false));
+    try {
+      final s = state;
+      final docs = await _searchDocuments(
+        query: s.query.isEmpty ? null : s.query,
+        tagIds: s.activeTagIds.isEmpty ? null : s.activeTagIds.toList(),
+        folderId: s.folderScope.specificId,
+        onlyUnassignedFolder: s.folderScope.isUnassigned,
+      );
+      if (!isClosed) {
+        emit(state.copyWith(documents: docs, loadingDocuments: false));
+      }
+    } catch (e, st) {
+      log.e('[documents_list] refresh documents failed',
+          error: e, stackTrace: st);
+      if (!isClosed) {
+        emit(state.copyWith(
+          loadingDocuments: false,
+          error: 'Failed to load documents: $e',
+        ));
+      }
     }
   }
 
   Future<void> _refreshNotes() async {
-    final s = state;
-    final notes = await _listNotes(
-      query: s.query.isEmpty ? null : s.query,
-      folderId: s.folderScope.specificId,
-      onlyUnassignedFolder: s.folderScope.isUnassigned,
-    );
-    if (!isClosed) {
-      emit(state.copyWith(notes: notes, loadingNotes: false));
+    try {
+      final s = state;
+      final notes = await _listNotes(
+        query: s.query.isEmpty ? null : s.query,
+        folderId: s.folderScope.specificId,
+        onlyUnassignedFolder: s.folderScope.isUnassigned,
+      );
+      if (!isClosed) {
+        emit(state.copyWith(notes: notes, loadingNotes: false));
+      }
+    } catch (e, st) {
+      log.e('[documents_list] refresh notes failed', error: e, stackTrace: st);
+      if (!isClosed) {
+        emit(state.copyWith(
+          loadingNotes: false,
+          error: 'Failed to load notes: $e',
+        ));
+      }
     }
   }
 
@@ -158,7 +180,8 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
           message: 'Imported $count file(s)',
         ));
       }
-    } catch (e) {
+    } catch (e, st) {
+      log.e('[documents_list] import failed', error: e, stackTrace: st);
       if (!isClosed) {
         emit(state.copyWith(busy: false, error: 'Import failed: $e'));
       }
@@ -175,14 +198,25 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
           message: imported == 0 ? 'Scan cancelled' : 'Document scanned',
         ));
       }
-    } catch (e) {
+    } catch (e, st) {
+      log.e('[documents_list] scan failed', error: e, stackTrace: st);
       if (!isClosed) {
         emit(state.copyWith(busy: false, error: 'Scan failed: $e'));
       }
     }
   }
 
-  Future<Note> createNote() => _createNote();
+  Future<Note?> createNote() async {
+    try {
+      return await _createNote();
+    } catch (e, st) {
+      log.e('[documents_list] create note failed', error: e, stackTrace: st);
+      if (!isClosed) {
+        emit(state.copyWith(error: 'Failed to create note: $e'));
+      }
+      return null;
+    }
+  }
 
   Future<void> deleteNote(int id) async {
     emit(state.copyWith(busy: true, clearError: true, clearMessage: true));
@@ -191,7 +225,8 @@ class DocumentsListCubit extends Cubit<DocumentsListState> {
       if (!isClosed) {
         emit(state.copyWith(busy: false, message: 'Note deleted'));
       }
-    } catch (e) {
+    } catch (e, st) {
+      log.e('[documents_list] delete note failed', error: e, stackTrace: st);
       if (!isClosed) {
         emit(state.copyWith(busy: false, error: 'Delete failed: $e'));
       }

@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../core/crypto/aead.dart';
 import '../../core/crypto/vault_crypto.dart';
+import '../../core/logging/app_logger.dart';
 import '../vault/vault_service.dart';
 import 'document.dart';
 import 'document_repository.dart';
@@ -66,7 +67,10 @@ class DocumentOpenService {
     if (viewDir.existsSync()) {
       try {
         await viewDir.delete(recursive: true);
-      } catch (_) {}
+      } catch (e, st) {
+        log.w('[document_open] temp view dir cleanup failed',
+            error: e, stackTrace: st);
+      }
     }
   }
 }

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/logging/app_logger.dart';
 import '../../folders/usecases/get_folder.dart';
 import '../../folders/usecases/watch_folder_changes.dart';
 import '../../sharing/usecases/share_document.dart';
@@ -97,7 +98,8 @@ class DocumentDetailCubit extends Cubit<DocumentDetailState> {
       await _renameDocument(id: doc.id, newName: trimmed);
       // change stream → _reloadDocument()
       if (!isClosed) emit(state.copyWith(busy: false));
-    } catch (e) {
+    } catch (e, st) {
+      log.e('[document_detail] rename failed', error: e, stackTrace: st);
       if (!isClosed) {
         emit(state.copyWith(busy: false, error: 'Rename failed: $e'));
       }
@@ -111,7 +113,8 @@ class DocumentDetailCubit extends Cubit<DocumentDetailState> {
     try {
       await _openDocument(doc);
       if (!isClosed) emit(state.copyWith(busy: false));
-    } catch (e) {
+    } catch (e, st) {
+      log.e('[document_detail] open failed', error: e, stackTrace: st);
       if (!isClosed) {
         emit(state.copyWith(busy: false, error: 'Failed to open: $e'));
       }
@@ -125,7 +128,8 @@ class DocumentDetailCubit extends Cubit<DocumentDetailState> {
     try {
       await _shareDocument(doc);
       if (!isClosed) emit(state.copyWith(busy: false));
-    } catch (e) {
+    } catch (e, st) {
+      log.e('[document_detail] share failed', error: e, stackTrace: st);
       if (!isClosed) {
         emit(state.copyWith(busy: false, error: 'Share failed: $e'));
       }
@@ -139,7 +143,8 @@ class DocumentDetailCubit extends Cubit<DocumentDetailState> {
     try {
       await _deleteDocument(doc);
       if (!isClosed) emit(state.copyWith(busy: false, popRequested: true));
-    } catch (e) {
+    } catch (e, st) {
+      log.e('[document_detail] delete failed', error: e, stackTrace: st);
       if (!isClosed) {
         emit(state.copyWith(busy: false, error: 'Delete failed: $e'));
       }

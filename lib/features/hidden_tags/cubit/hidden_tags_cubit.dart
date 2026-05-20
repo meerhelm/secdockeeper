@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/logging/app_logger.dart';
 import '../usecases/assign_hidden_tag.dart';
 import '../usecases/list_hidden_tags_for_document.dart';
 import '../usecases/remove_hidden_tag.dart';
@@ -42,7 +43,8 @@ class HiddenTagsCubit extends Cubit<HiddenTagsState> {
     try {
       await _assignHiddenTag(documentId: documentId, name: trimmed);
       if (!isClosed) emit(state.copyWith(busy: false));
-    } catch (e) {
+    } catch (e, st) {
+      log.e('[hidden_tags] assign failed', error: e, stackTrace: st);
       if (!isClosed) {
         emit(state.copyWith(busy: false, error: 'Failed: $e'));
       }
@@ -52,7 +54,8 @@ class HiddenTagsCubit extends Cubit<HiddenTagsState> {
   Future<void> remove(String name) async {
     try {
       await _removeHiddenTag(documentId: documentId, name: name);
-    } catch (e) {
+    } catch (e, st) {
+      log.e('[hidden_tags] remove failed', error: e, stackTrace: st);
       if (!isClosed) emit(state.copyWith(error: 'Failed: $e'));
     }
   }

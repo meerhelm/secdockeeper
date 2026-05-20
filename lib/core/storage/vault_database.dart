@@ -1,5 +1,7 @@
 import 'package:sqflite_sqlcipher/sqflite.dart';
 
+import '../logging/app_logger.dart';
+
 class VaultDatabase {
   VaultDatabase._(this._db);
 
@@ -23,7 +25,100 @@ class VaultDatabase {
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
+
+    // Ensure the notes storage exists, in case a restored backup bypassed
+    // migrations (e.g. user_version was already at the target before the
+    // schema was actually applied, or a prior migration failed partway).
+    await _ensureNotesStorage(database);
+
     return VaultDatabase._(database);
+  }
+
+  static Future<bool> _tableExists(Database db, String name) async {
+    final rows = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name=?;",
+      [name],
+    );
+    return rows.isNotEmpty;
+  }
+
+  static Future<Set<String>> _columnsOf(Database db, String table) async {
+    final rows = await db.rawQuery('PRAGMA table_info($table);');
+    return {for (final r in rows) r['name']! as String};
+  }
+
+  /// Columns that the current Dart code expects on the `notes` table. If any
+  /// are missing, the table was created by an older build with an incompatible
+  /// schema — there's no usable data to migrate (the per-row crypto material
+  /// is gone), so we drop and recreate.
+  static const _notesRequiredColumns = {
+    'id',
+    'uuid',
+    'title',
+    'dek_wrapped',
+    'dek_nonce',
+    'dek_mac',
+    'body_ciphertext',
+    'body_nonce',
+    'body_mac',
+    'folder_id',
+    'created_at',
+    'updated_at',
+  };
+
+  static Future<void> _ensureNotesStorage(Database db) async {
+    final hasNotes = await _tableExists(db, 'notes');
+    var needsCreate = !hasNotes;
+
+    if (hasNotes) {
+      final existing = await _columnsOf(db, 'notes');
+      final missing = _notesRequiredColumns.difference(existing);
+      if (missing.isNotEmpty) {
+        log.w('[vault_db] notes table schema drift; dropping and recreating. '
+            'missing columns: $missing existing columns: $existing');
+        await db.execute('DROP TABLE IF EXISTS notes_fts;');
+        await db.execute('DROP TABLE IF EXISTS notes;');
+        needsCreate = true;
+      }
+    }
+
+    if (needsCreate) {
+      await db.execute('''
+        CREATE TABLE notes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          uuid TEXT NOT NULL UNIQUE,
+          title TEXT NOT NULL DEFAULT '',
+          dek_wrapped BLOB NOT NULL,
+          dek_nonce BLOB NOT NULL,
+          dek_mac BLOB NOT NULL,
+          body_ciphertext BLOB NOT NULL,
+          body_nonce BLOB NOT NULL,
+          body_mac BLOB NOT NULL,
+          folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+      ''');
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_notes_updated_at ON notes(updated_at);',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_notes_folder ON notes(folder_id);',
+      );
+    }
+
+    final hasFts = await _tableExists(db, 'notes_fts');
+    if (!hasFts) {
+      await db.execute('''
+        CREATE VIRTUAL TABLE notes_fts USING fts5(
+          title
+        );
+      ''');
+      // Rebuild the FTS index from any rows that may already exist.
+      await db.execute(
+        'INSERT INTO notes_fts(rowid, title) SELECT id, COALESCE(title, "") FROM notes;',
+      );
+    }
   }
 
   Future<void> close() => _db.close();

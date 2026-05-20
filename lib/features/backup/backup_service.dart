@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../core/logging/app_logger.dart';
 import '../../core/storage/paths.dart';
 import '../vault/vault_service.dart';
 
@@ -114,7 +115,10 @@ class BackupService {
     for (final entity in dir.listSync(followLinks: false)) {
       try {
         entity.deleteSync(recursive: true);
-      } catch (_) {}
+      } catch (e, st) {
+        log.w('[backup] failed to delete ${entity.path} while emptying dir',
+            error: e, stackTrace: st);
+      }
     }
   }
 

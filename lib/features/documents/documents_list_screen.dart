@@ -142,7 +142,7 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
   Future<void> _createNewNote() async {
     final cubit = context.read<DocumentsListCubit>();
     final note = await cubit.createNote();
-    if (!mounted) return;
+    if (!mounted || note == null) return;
     await context.push(AppRoutes.noteDetailPath('${note.id}'));
   }
 

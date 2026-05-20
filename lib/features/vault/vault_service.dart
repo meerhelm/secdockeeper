@@ -7,6 +7,7 @@ import 'package:sqflite_sqlcipher/sqflite.dart';
 import '../../core/crypto/kdf.dart';
 import '../../core/crypto/tag_hmac.dart';
 import '../../core/crypto/vault_crypto.dart';
+import '../../core/logging/app_logger.dart';
 import '../../core/storage/blob_store.dart';
 import '../../core/storage/paths.dart';
 import '../../core/storage/vault_database.dart';
@@ -121,7 +122,10 @@ class VaultService extends ChangeNotifier {
       _tagHmacKey = await deriveTagHmacKey(kek);
       notifyListeners();
       return true;
-    } catch (_) {
+    } catch (e, st) {
+      // Expected on wrong password (SQLCipher fails to open the encrypted DB);
+      // log at debug so real errors elsewhere still surface.
+      log.d('[vault] _tryOpen failed', error: e, stackTrace: st);
       return false;
     }
   }

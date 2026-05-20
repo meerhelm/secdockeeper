@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
+import '../../core/logging/app_logger.dart';
+
 class OcrService {
   static bool get isSupported {
     if (kIsWeb) return false;
@@ -20,7 +22,8 @@ class OcrService {
       final text = result.text.trim();
       if (text.isEmpty) return null;
       return text;
-    } catch (_) {
+    } catch (e, st) {
+      log.w('[ocr] text recognition failed', error: e, stackTrace: st);
       return null;
     } finally {
       await recognizer.close();

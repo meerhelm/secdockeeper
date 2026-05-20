@@ -84,7 +84,10 @@ class DocumentScannerService {
         if (await f.exists()) {
           try {
             await f.delete();
-          } catch (_) {}
+          } catch (e, st) {
+            log.w('[scanner] failed to delete temp page ${f.path}',
+                error: e, stackTrace: st);
+          }
         }
       }
     }

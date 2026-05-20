@@ -4,6 +4,7 @@ import '../../../core/crypto/aead.dart';
 import '../../../core/crypto/kdf.dart';
 import '../../../core/crypto/tag_hmac.dart';
 import '../../../core/crypto/vault_crypto.dart';
+import '../../../core/logging/app_logger.dart';
 import '../../../core/storage/paths.dart';
 import '../../../core/storage/vault_database.dart';
 import '../../documents/document_repository.dart';
@@ -176,11 +177,12 @@ class RotateVaultKeyUseCase {
       // 9. Successfully finished - delete backup
       await VaultDescriptor.deleteBackup(_paths);
 
-    } catch (e) {
-      // If we failed before updating vault.json, the next unlock 
-      // will still use the old salt/password. 
-      // The database might be in an inconsistent state if rekey succeeded 
+    } catch (e, st) {
+      // If we failed before updating vault.json, the next unlock
+      // will still use the old salt/password.
+      // The database might be in an inconsistent state if rekey succeeded
       // but descriptor update failed. This is what the recovery in unlock handles.
+      log.e('[rotate_vault_key] rotation failed', error: e, stackTrace: st);
       rethrow;
     }
   }
