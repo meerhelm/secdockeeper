@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 enum PanicAction { lockout, wipe }
@@ -20,6 +21,7 @@ class LockSettings extends ChangeNotifier {
   static const _kPanicAction = 'sdk.panic_action';
   static const _kFailedAttempts = 'sdk.panic_failed_attempts';
   static const _kLockedUntilMs = 'sdk.panic_locked_until_ms';
+  static const _kThemeMode = 'sdk.theme_mode';
 
   /// Number of consecutive wrong-password attempts that trigger a panic step
   /// (escalating lockout) or a vault wipe.
@@ -30,6 +32,7 @@ class LockSettings extends ChangeNotifier {
   PanicAction _panicAction = PanicAction.lockout;
   int _failedAttempts = 0;
   DateTime? _lockedUntil;
+  ThemeMode _themeMode = ThemeMode.system;
   bool _loaded = false;
 
   bool get biometricEnabled => _biometricEnabled;
@@ -37,6 +40,7 @@ class LockSettings extends ChangeNotifier {
   PanicAction get panicAction => _panicAction;
   int get failedAttempts => _failedAttempts;
   DateTime? get lockedUntil => _lockedUntil;
+  ThemeMode get themeMode => _themeMode;
   bool get loaded => _loaded;
 
   Future<void> load() async {
@@ -45,6 +49,7 @@ class LockSettings extends ChangeNotifier {
     final pa = await _storage.read(key: _kPanicAction);
     final fa = await _storage.read(key: _kFailedAttempts);
     final lu = await _storage.read(key: _kLockedUntilMs);
+    final tm = await _storage.read(key: _kThemeMode);
     _biometricEnabled = b == 'true';
     _autoLockSeconds = int.tryParse(s ?? '') ?? 60;
     _panicAction = _decodePanicAction(pa);
@@ -52,6 +57,7 @@ class LockSettings extends ChangeNotifier {
     final luMs = int.tryParse(lu ?? '');
     _lockedUntil =
         luMs == null ? null : DateTime.fromMillisecondsSinceEpoch(luMs);
+    _themeMode = _decodeThemeMode(tm);
     _loaded = true;
     notifyListeners();
   }
@@ -59,6 +65,12 @@ class LockSettings extends ChangeNotifier {
   Future<void> setAutoLockSeconds(int seconds) async {
     _autoLockSeconds = seconds;
     await _storage.write(key: _kAutoLockSeconds, value: seconds.toString());
+    notifyListeners();
+  }
+
+  Future<void> setThemeMode(ThemeMode mode) async {
+    _themeMode = mode;
+    await _storage.write(key: _kThemeMode, value: _encodeThemeMode(mode));
     notifyListeners();
   }
 
@@ -123,11 +135,13 @@ class LockSettings extends ChangeNotifier {
     await _storage.delete(key: _kPanicAction);
     await _storage.delete(key: _kFailedAttempts);
     await _storage.delete(key: _kLockedUntilMs);
+    await _storage.delete(key: _kThemeMode);
     _biometricEnabled = false;
     _autoLockSeconds = 60;
     _panicAction = PanicAction.lockout;
     _failedAttempts = 0;
     _lockedUntil = null;
+    _themeMode = ThemeMode.system;
     notifyListeners();
   }
 
@@ -153,4 +167,16 @@ String _encodePanicAction(PanicAction action) => switch (action) {
 PanicAction _decodePanicAction(String? raw) => switch (raw) {
       'wipe' => PanicAction.wipe,
       _ => PanicAction.lockout,
+    };
+
+String _encodeThemeMode(ThemeMode mode) => switch (mode) {
+      ThemeMode.light => 'light',
+      ThemeMode.dark => 'dark',
+      ThemeMode.system => 'system',
+    };
+
+ThemeMode _decodeThemeMode(String? raw) => switch (raw) {
+      'light' => ThemeMode.light,
+      'dark' => ThemeMode.dark,
+      _ => ThemeMode.system,
     };

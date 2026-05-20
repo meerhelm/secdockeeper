@@ -36,7 +36,9 @@ import '../features/security/usecases/enable_biometrics.dart';
 import '../features/security/usecases/is_biometric_available.dart';
 import '../features/security/usecases/is_biometric_unlock_ready.dart';
 import '../features/security/usecases/register_failed_unlock.dart';
+import '../features/security/usecases/set_auto_lock_seconds.dart';
 import '../features/security/usecases/set_panic_action.dart';
+import '../features/security/usecases/set_theme_mode.dart';
 import '../features/settings/cubit/settings_cubit.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/sharing/usecases/import_shared_package.dart';
@@ -48,6 +50,7 @@ import '../features/tags/usecases/watch_tag_changes.dart';
 import '../features/vault/cubit/lock_cubit.dart';
 import '../features/vault/lock_screen.dart';
 import '../features/vault/usecases/destroy_vault.dart';
+import '../features/vault/usecases/get_vault_kdf_profile.dart';
 import '../features/vault/usecases/initialize_vault.dart';
 import '../features/vault/usecases/lock_vault.dart';
 import '../features/vault/usecases/rotate_vault_key.dart';
@@ -221,6 +224,8 @@ GoRouter buildAppRouter({required VaultService vault}) {
             create: (_) => SettingsCubit(
               lockSettings: s.lockSettings,
               setPanicAction: SetPanicActionUseCase(s.lockSettings),
+              setAutoLockSeconds: SetAutoLockSecondsUseCase(s.lockSettings),
+              setThemeMode: SetThemeModeUseCase(s.lockSettings),
               importSharedPackage: ImportSharedPackageUseCase(s.share),
               exportBackup: ExportBackupUseCase(
                 backup: s.backup,
@@ -242,6 +247,7 @@ GoRouter buildAppRouter({required VaultService vault}) {
               enableBiometrics: EnableBiometricsUseCase(s.lockSettings),
               disableBiometrics: DisableBiometricsUseCase(s.lockSettings),
               verifyMasterPassword: VerifyMasterPasswordUseCase(s.vault),
+              getVaultKdfProfile: GetVaultKdfProfileUseCase(s.paths),
             ),
             child: const SettingsScreen(),
           );

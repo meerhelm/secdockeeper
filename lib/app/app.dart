@@ -24,15 +24,20 @@ class _SecDockKeeperAppState extends State<SecDockKeeperApp> {
       services: widget.services,
       child: BlocProvider(
         create: (_) => VaultCubit(widget.services.vault),
-        child: MaterialApp.router(
-          title: 'SecDockKeeper',
-          debugShowCheckedModeBanner: false,
-          theme: AppTheme.light(),
-          darkTheme: AppTheme.dark(),
-          themeMode: ThemeMode.system,
-          routerConfig: _router,
-          builder: (context, child) {
-            return AppScope(services: widget.services, child: child!);
+        child: ListenableBuilder(
+          listenable: widget.services.lockSettings,
+          builder: (context, _) {
+            return MaterialApp.router(
+              title: 'SecDockKeeper',
+              debugShowCheckedModeBanner: false,
+              theme: AppTheme.light(),
+              darkTheme: AppTheme.dark(),
+              themeMode: widget.services.lockSettings.themeMode,
+              routerConfig: _router,
+              builder: (context, child) {
+                return AppScope(services: widget.services, child: child!);
+              },
+            );
           },
         ),
       ),

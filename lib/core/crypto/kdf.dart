@@ -24,6 +24,13 @@ class KdfParams {
     hashLength: 32,
   );
 
+  static const hardenedParams = KdfParams(
+    memory: 128 * 1024,
+    iterations: 4,
+    parallelism: 1,
+    hashLength: 32,
+  );
+
   // OWASP minimum floor — vaults persisted with weaker params are rejected on
   // load so a tampered vault.json cannot downgrade Argon2id strength.
   static const _minMemory = 19 * 1024;
@@ -49,6 +56,28 @@ class KdfParams {
       );
     }
     return KdfParams(memory: m, iterations: t, parallelism: p, hashLength: h);
+  }
+}
+
+/// User-facing Argon2id strength presets surfaced in Settings. The values
+/// behind each preset live on [KdfParams] (defaultParams / hardenedParams).
+enum KdfProfile {
+  standard,
+  hardened;
+
+  KdfParams get params => switch (this) {
+        KdfProfile.standard => KdfParams.defaultParams,
+        KdfProfile.hardened => KdfParams.hardenedParams,
+      };
+
+  /// Classify a stored [KdfParams] against the known presets. Anything at or
+  /// above the hardened threshold reads as [hardened]; otherwise [standard].
+  static KdfProfile fromParams(KdfParams p) {
+    final h = KdfParams.hardenedParams;
+    if (p.memory >= h.memory && p.iterations >= h.iterations) {
+      return KdfProfile.hardened;
+    }
+    return KdfProfile.standard;
   }
 }
 
