@@ -7,11 +7,41 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../app/tokens.dart';
 import '../../app/widgets/row_tile.dart';
 import '../../app/widgets/section_label.dart';
+import '../../core/crypto/kdf.dart';
 import '../security/lock_settings.dart';
 import '../vault/widgets/change_master_password_dialog.dart';
 import '../vault/widgets/destroy_vault_dialog.dart';
 import 'cubit/settings_cubit.dart';
 import 'cubit/settings_state.dart';
+
+const _autoLockOptions = <int>[0, 30, 60, 300, 900];
+
+String _autoLockLabel(int seconds) => switch (seconds) {
+      0 => 'Immediate',
+      30 => '30 seconds',
+      60 => '1 minute',
+      300 => '5 minutes',
+      900 => '15 minutes',
+      _ => '$seconds seconds',
+    };
+
+String _themeLabel(ThemeMode mode) => switch (mode) {
+      ThemeMode.light => 'Light',
+      ThemeMode.dark => 'Dark',
+      ThemeMode.system => 'Match system',
+    };
+
+String _kdfLabel(KdfProfile profile) => switch (profile) {
+      KdfProfile.standard => 'Standard',
+      KdfProfile.hardened => 'Hardened',
+    };
+
+String _kdfSubtitle(KdfProfile profile) => switch (profile) {
+      KdfProfile.standard =>
+        '64 MiB · 3 iterations — OWASP recommended baseline.',
+      KdfProfile.hardened =>
+        '128 MiB · 4 iterations — noticeably slower unlock.',
+    };
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -116,6 +146,101 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
+  Future<void> _pickAutoLock(BuildContext context) async {
+    final cubit = context.read<SettingsCubit>();
+    final current = cubit.state.autoLockSeconds;
+    final picked = await showModalBottomSheet<int>(
+      context: context,
+      builder: (ctx) => _PickerSheet<int>(
+        title: 'Auto-lock',
+        description:
+            'How long the vault stays unlocked while the app is in the '
+            'background.',
+        options: _autoLockOptions,
+        current: current,
+        labelOf: _autoLockLabel,
+      ),
+    );
+    if (picked != null) {
+      await cubit.setAutoLockSeconds(picked);
+    }
+  }
+
+  Future<void> _pickTheme(BuildContext context) async {
+    final cubit = context.read<SettingsCubit>();
+    final picked = await showModalBottomSheet<ThemeMode>(
+      context: context,
+      builder: (ctx) => _PickerSheet<ThemeMode>(
+        title: 'Theme',
+        description: 'Light, dark, or match the device setting.',
+        options: const [ThemeMode.system, ThemeMode.light, ThemeMode.dark],
+        current: cubit.state.themeMode,
+        labelOf: _themeLabel,
+      ),
+    );
+    if (picked != null) {
+      await cubit.setThemeMode(picked);
+    }
+  }
+
+  Future<void> _pickKdfProfile(BuildContext context) async {
+    final cubit = context.read<SettingsCubit>();
+    final current = cubit.state.kdfProfile;
+    final picked = await showModalBottomSheet<KdfProfile>(
+      context: context,
+      builder: (ctx) => _PickerSheet<KdfProfile>(
+        title: 'Argon2id profile',
+        description:
+            'Controls how much work each unlock costs. Hardened is stronger '
+            'but adds a few seconds per unlock.',
+        options: KdfProfile.values,
+        current: current,
+        labelOf: _kdfLabel,
+        descriptionOf: _kdfSubtitle,
+      ),
+    );
+    if (picked == null || picked == current) return;
+    if (!context.mounted) return;
+    final confirmed = await _confirmKdfProfile(context, picked);
+    if (confirmed != true) return;
+    await cubit.requestKdfProfileChange(picked);
+  }
+
+  Future<bool?> _confirmKdfProfile(
+    BuildContext context,
+    KdfProfile target,
+  ) async {
+    final c = context.c;
+    final goingUp = target == KdfProfile.hardened;
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(goingUp ? 'Harden Argon2id?' : 'Switch to Standard?'),
+        content: Text(
+          goingUp
+              ? 'Switching to Hardened rotates the master key under stronger '
+                  'parameters and increases unlock time. This re-keys the '
+                  'entire vault and lands in a follow-up release (issue #5). '
+                  'Continue to register your preference?'
+              : 'Returning to Standard requires a full re-key of the vault. '
+                  'This will land alongside the harden-vault flow (issue #5).',
+          style: TextStyle(color: c.muted, fontSize: 13.5, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            style: TextButton.styleFrom(foregroundColor: c.fg),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _destroyVault(BuildContext context) async {
     final cubit = context.read<SettingsCubit>();
     final confirmed = await showDialog<bool>(
@@ -204,6 +329,44 @@ class SettingsScreen extends StatelessWidget {
                         available: state.biometricAvailable,
                         busy: state.busy,
                         onChanged: (v) => _toggleBiometric(context, v),
+                      ),
+                      RowTile(
+                        icon: Icons.timer_outlined,
+                        title: 'Auto-lock',
+                        subtitle: _autoLockLabel(state.autoLockSeconds),
+                        onTap: state.busy ? null : () => _pickAutoLock(context),
+                      ),
+                    ],
+                  ),
+                ),
+                const SectionLabel('Encryption'),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: RowTileGroup(
+                    children: [
+                      RowTile(
+                        icon: Icons.shield_outlined,
+                        title: 'Argon2id profile',
+                        subtitle:
+                            '${_kdfLabel(state.kdfProfile)} · '
+                            '${_kdfSubtitle(state.kdfProfile)}',
+                        onTap: state.busy
+                            ? null
+                            : () => _pickKdfProfile(context),
+                      ),
+                    ],
+                  ),
+                ),
+                const SectionLabel('Appearance'),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: RowTileGroup(
+                    children: [
+                      RowTile(
+                        icon: Icons.brightness_6_outlined,
+                        title: 'Theme',
+                        subtitle: _themeLabel(state.themeMode),
+                        onTap: state.busy ? null : () => _pickTheme(context),
                       ),
                     ],
                   ),
@@ -447,6 +610,128 @@ class _DangerTile extends StatelessWidget {
               Icon(Icons.chevron_right, size: 18, color: c.muted2),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PickerSheet<T> extends StatelessWidget {
+  const _PickerSheet({
+    required this.title,
+    required this.description,
+    required this.options,
+    required this.current,
+    required this.labelOf,
+    this.descriptionOf,
+  });
+
+  final String title;
+  final String description;
+  final List<T> options;
+  final T current;
+  final String Function(T) labelOf;
+  final String Function(T)? descriptionOf;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                color: c.fg,
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.2,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              description,
+              style: TextStyle(color: c.muted, fontSize: 13, height: 1.45),
+            ),
+            const SizedBox(height: 14),
+            for (final option in options)
+              _PickerRow<T>(
+                label: labelOf(option),
+                description: descriptionOf?.call(option),
+                selected: option == current,
+                onTap: () => Navigator.pop(context, option),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PickerRow<T> extends StatelessWidget {
+  const _PickerRow({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.description,
+  });
+
+  final String label;
+  final String? description;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              selected
+                  ? Icons.radio_button_checked
+                  : Icons.radio_button_unchecked,
+              size: 20,
+              color: selected ? c.accent : c.muted2,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: c.fg,
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: -0.07,
+                    ),
+                  ),
+                  if (description != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      description!,
+                      style: TextStyle(
+                        color: c.muted,
+                        fontSize: 12.5,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

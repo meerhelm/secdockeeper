@@ -1,16 +1,21 @@
 import 'dart:io';
 
+import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/crypto/kdf.dart';
 import '../../../core/logging/app_logger.dart';
 import '../../backup/usecases/export_backup.dart';
 import '../../security/lock_settings.dart';
 import '../../security/usecases/disable_biometrics.dart';
 import '../../security/usecases/enable_biometrics.dart';
 import '../../security/usecases/is_biometric_available.dart';
+import '../../security/usecases/set_auto_lock_seconds.dart';
 import '../../security/usecases/set_panic_action.dart';
+import '../../security/usecases/set_theme_mode.dart';
 import '../../sharing/usecases/import_shared_package.dart';
 import '../../vault/usecases/destroy_vault.dart';
+import '../../vault/usecases/get_vault_kdf_profile.dart';
 import '../../vault/usecases/rotate_vault_key.dart';
 import '../../vault/usecases/verify_master_password.dart';
 import 'settings_state.dart';
@@ -19,6 +24,8 @@ class SettingsCubit extends Cubit<SettingsState> {
   SettingsCubit({
     required LockSettings lockSettings,
     required SetPanicActionUseCase setPanicAction,
+    required SetAutoLockSecondsUseCase setAutoLockSeconds,
+    required SetThemeModeUseCase setThemeMode,
     required ImportSharedPackageUseCase importSharedPackage,
     required ExportBackupUseCase exportBackup,
     required RotateVaultKeyUseCase rotateVaultKey,
@@ -27,8 +34,11 @@ class SettingsCubit extends Cubit<SettingsState> {
     required EnableBiometricsUseCase enableBiometrics,
     required DisableBiometricsUseCase disableBiometrics,
     required VerifyMasterPasswordUseCase verifyMasterPassword,
+    required GetVaultKdfProfileUseCase getVaultKdfProfile,
   })  : _lockSettings = lockSettings,
         _setPanicAction = setPanicAction,
+        _setAutoLockSeconds = setAutoLockSeconds,
+        _setThemeMode = setThemeMode,
         _importSharedPackage = importSharedPackage,
         _exportBackup = exportBackup,
         _rotateVaultKey = rotateVaultKey,
@@ -37,16 +47,22 @@ class SettingsCubit extends Cubit<SettingsState> {
         _enableBiometrics = enableBiometrics,
         _disableBiometrics = disableBiometrics,
         _verifyMasterPassword = verifyMasterPassword,
+        _getVaultKdfProfile = getVaultKdfProfile,
         super(SettingsState(
           panicAction: lockSettings.panicAction,
           biometricEnabled: lockSettings.biometricEnabled,
+          autoLockSeconds: lockSettings.autoLockSeconds,
+          themeMode: lockSettings.themeMode,
         )) {
     _resolveBiometricAvailability();
+    _resolveKdfProfile();
     _lockSettings.addListener(_onLockSettingsChanged);
   }
 
   final LockSettings _lockSettings;
   final SetPanicActionUseCase _setPanicAction;
+  final SetAutoLockSecondsUseCase _setAutoLockSeconds;
+  final SetThemeModeUseCase _setThemeMode;
   final ImportSharedPackageUseCase _importSharedPackage;
   final ExportBackupUseCase _exportBackup;
   final RotateVaultKeyUseCase _rotateVaultKey;
@@ -55,6 +71,7 @@ class SettingsCubit extends Cubit<SettingsState> {
   final EnableBiometricsUseCase _enableBiometrics;
   final DisableBiometricsUseCase _disableBiometrics;
   final VerifyMasterPasswordUseCase _verifyMasterPassword;
+  final GetVaultKdfProfileUseCase _getVaultKdfProfile;
 
   Future<void> _resolveBiometricAvailability() async {
     final available = await _isBiometricAvailable();
@@ -62,11 +79,24 @@ class SettingsCubit extends Cubit<SettingsState> {
     emit(state.copyWith(biometricAvailable: available));
   }
 
+  Future<void> _resolveKdfProfile() async {
+    try {
+      final profile = await _getVaultKdfProfile();
+      if (isClosed) return;
+      emit(state.copyWith(kdfProfile: profile));
+    } catch (e, st) {
+      log.w('[settings] failed to resolve kdf profile',
+          error: e, stackTrace: st);
+    }
+  }
+
   void _onLockSettingsChanged() {
     if (isClosed) return;
     emit(state.copyWith(
       panicAction: _lockSettings.panicAction,
       biometricEnabled: _lockSettings.biometricEnabled,
+      autoLockSeconds: _lockSettings.autoLockSeconds,
+      themeMode: _lockSettings.themeMode,
     ));
   }
 
@@ -74,6 +104,8 @@ class SettingsCubit extends Cubit<SettingsState> {
     emit(state.copyWith(
       panicAction: _lockSettings.panicAction,
       biometricEnabled: _lockSettings.biometricEnabled,
+      autoLockSeconds: _lockSettings.autoLockSeconds,
+      themeMode: _lockSettings.themeMode,
     ));
   }
 
@@ -88,6 +120,42 @@ class SettingsCubit extends Cubit<SettingsState> {
       message: action == PanicAction.wipe
           ? 'Wipe-on-panic enabled.'
           : 'Lockout-on-panic enabled.',
+    ));
+  }
+
+  Future<void> setAutoLockSeconds(int seconds) async {
+    if (state.autoLockSeconds == seconds) return;
+    emit(state.copyWith(busy: true, clearMessage: true, clearError: true));
+    await _setAutoLockSeconds(seconds);
+    if (isClosed) return;
+    emit(state.copyWith(
+      autoLockSeconds: seconds,
+      busy: false,
+      message: 'Auto-lock updated.',
+    ));
+  }
+
+  Future<void> setThemeMode(ThemeMode mode) async {
+    if (state.themeMode == mode) return;
+    emit(state.copyWith(busy: true, clearMessage: true, clearError: true));
+    await _setThemeMode(mode);
+    if (isClosed) return;
+    emit(state.copyWith(
+      themeMode: mode,
+      busy: false,
+      message: 'Theme updated.',
+    ));
+  }
+
+  /// Surfaced by the Argon2id picker. The actual rotation under stronger
+  /// parameters lands in issue #5 (harden vault) — this call only records
+  /// the user's intent and reports back via [SettingsState.message].
+  Future<void> requestKdfProfileChange(KdfProfile target) async {
+    if (state.kdfProfile == target) return;
+    emit(state.copyWith(
+      message: target == KdfProfile.hardened
+          ? 'Hardened Argon2id will ship with the harden-vault flow (issue #5).'
+          : 'Argon2id downgrade is not supported.',
     ));
   }
 
