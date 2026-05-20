@@ -51,6 +51,7 @@ import '../features/vault/cubit/lock_cubit.dart';
 import '../features/vault/lock_screen.dart';
 import '../features/vault/usecases/destroy_vault.dart';
 import '../features/vault/usecases/get_vault_kdf_profile.dart';
+import '../features/vault/usecases/harden_vault.dart';
 import '../features/vault/usecases/initialize_vault.dart';
 import '../features/vault/usecases/lock_vault.dart';
 import '../features/vault/usecases/rotate_vault_key.dart';
@@ -248,6 +249,13 @@ GoRouter buildAppRouter({required VaultService vault}) {
               disableBiometrics: DisableBiometricsUseCase(s.lockSettings),
               verifyMasterPassword: VerifyMasterPasswordUseCase(s.vault),
               getVaultKdfProfile: GetVaultKdfProfileUseCase(s.paths),
+              hardenVault: HardenVaultUseCase(
+                vault: s.vault,
+                documents: s.documents,
+                hiddenTags: s.hiddenTags,
+                notes: s.notes,
+                paths: s.paths,
+              ),
             ),
             child: const SettingsScreen(),
           );

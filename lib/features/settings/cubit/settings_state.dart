@@ -11,6 +11,8 @@ class SettingsState {
     this.autoLockSeconds = 60,
     this.themeMode = ThemeMode.system,
     this.kdfProfile = KdfProfile.standard,
+    this.kdfBelowDefault = false,
+    this.hardening = false,
     this.busy = false,
     this.message,
     this.error,
@@ -22,6 +24,8 @@ class SettingsState {
   final int autoLockSeconds;
   final ThemeMode themeMode;
   final KdfProfile kdfProfile;
+  final bool kdfBelowDefault;
+  final bool hardening;
   final bool busy;
   final String? message;
   final String? error;
@@ -33,6 +37,8 @@ class SettingsState {
     int? autoLockSeconds,
     ThemeMode? themeMode,
     KdfProfile? kdfProfile,
+    bool? kdfBelowDefault,
+    bool? hardening,
     bool? busy,
     String? message,
     String? error,
@@ -46,6 +52,8 @@ class SettingsState {
       autoLockSeconds: autoLockSeconds ?? this.autoLockSeconds,
       themeMode: themeMode ?? this.themeMode,
       kdfProfile: kdfProfile ?? this.kdfProfile,
+      kdfBelowDefault: kdfBelowDefault ?? this.kdfBelowDefault,
+      hardening: hardening ?? this.hardening,
       busy: busy ?? this.busy,
       message: clearMessage ? null : (message ?? this.message),
       error: clearError ? null : (error ?? this.error),
@@ -61,6 +69,8 @@ class SettingsState {
       other.autoLockSeconds == autoLockSeconds &&
       other.themeMode == themeMode &&
       other.kdfProfile == kdfProfile &&
+      other.kdfBelowDefault == kdfBelowDefault &&
+      other.hardening == hardening &&
       other.busy == busy &&
       other.message == message &&
       other.error == error;
@@ -73,6 +83,8 @@ class SettingsState {
         autoLockSeconds,
         themeMode,
         kdfProfile,
+        kdfBelowDefault,
+        hardening,
         busy,
         message,
         error,

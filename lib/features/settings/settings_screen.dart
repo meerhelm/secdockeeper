@@ -93,7 +93,13 @@ class SettingsScreen extends StatelessWidget {
     await cubit.enableBiometric(password);
   }
 
-  Future<String?> _promptMasterPassword(BuildContext context) async {
+  Future<String?> _promptMasterPassword(
+    BuildContext context, {
+    String description =
+        'Enter your master password to enable biometric login. '
+            'It is stored in the device keystore and never leaves this device.',
+    String confirmLabel = 'Enable',
+  }) async {
     final c = context.c;
     final ctl = TextEditingController();
     var obscure = true;
@@ -107,8 +113,7 @@ class SettingsScreen extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Enter your master password to enable biometric login. '
-                'It is stored in the device keystore and never leaves this device.',
+                description,
                 style: TextStyle(color: c.muted, fontSize: 13, height: 1.5),
               ),
               const SizedBox(height: 14),
@@ -138,7 +143,7 @@ class SettingsScreen extends StatelessWidget {
             ),
             FilledButton(
               onPressed: () => Navigator.pop(ctx, ctl.text),
-              child: const Text('Enable'),
+              child: Text(confirmLabel),
             ),
           ],
         ),
@@ -201,29 +206,58 @@ class SettingsScreen extends StatelessWidget {
     );
     if (picked == null || picked == current) return;
     if (!context.mounted) return;
-    final confirmed = await _confirmKdfProfile(context, picked);
-    if (confirmed != true) return;
-    await cubit.requestKdfProfileChange(picked);
+    if (picked == KdfProfile.standard) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Argon2id downgrade is not supported.')),
+      );
+      return;
+    }
+    await _runHarden(context, target: picked, params: picked.params);
   }
 
-  Future<bool?> _confirmKdfProfile(
-    BuildContext context,
-    KdfProfile target,
-  ) async {
+  Future<void> _runHarden(
+    BuildContext context, {
+    required KdfProfile target,
+    required KdfParams params,
+  }) async {
+    final cubit = context.read<SettingsCubit>();
+    final confirmed = await _confirmHarden(context, target);
+    if (confirmed != true) return;
+    if (!context.mounted) return;
+
+    final stored = await cubit.readStoredMasterPassword();
+    String? password = stored;
+    if (password == null) {
+      if (!context.mounted) return;
+      password = await _promptMasterPassword(
+        context,
+        description:
+            'Re-keys the vault under the new Argon2id parameters. The '
+            'password itself does not change.',
+        confirmLabel: 'Harden',
+      );
+    }
+    if (password == null || password.isEmpty) return;
+    if (!context.mounted) return;
+
+    final progressFuture = cubit.hardenTo(
+      targetParams: params,
+      currentPassword: password,
+    );
+    await _showHardeningProgress(context, progressFuture);
+  }
+
+  Future<bool?> _confirmHarden(BuildContext context, KdfProfile target) async {
     final c = context.c;
-    final goingUp = target == KdfProfile.hardened;
     return showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(goingUp ? 'Harden Argon2id?' : 'Switch to Standard?'),
+        title: const Text('Harden vault?'),
         content: Text(
-          goingUp
-              ? 'Switching to Hardened rotates the master key under stronger '
-                  'parameters and increases unlock time. This re-keys the '
-                  'entire vault and lands in a follow-up release (issue #5). '
-                  'Continue to register your preference?'
-              : 'Returning to Standard requires a full re-key of the vault. '
-                  'This will land alongside the harden-vault flow (issue #5).',
+          'Re-derives the master key under ${_kdfLabel(target)} Argon2id '
+          'parameters and re-encrypts every wrapped key. Each unlock will '
+          'take a few extra seconds afterwards. Do not close the app while '
+          'this runs.',
           style: TextStyle(color: c.muted, fontSize: 13.5, height: 1.5),
         ),
         actions: [
@@ -234,11 +268,45 @@ class SettingsScreen extends StatelessWidget {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Continue'),
+            child: const Text('Harden'),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _showHardeningProgress(
+    BuildContext context,
+    Future<bool> task,
+  ) async {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          content: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              SizedBox(width: 14),
+              Expanded(
+                child: Text('Hardening vault — keep the app open.'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    try {
+      await task;
+    } finally {
+      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+    }
   }
 
   Future<void> _destroyVault(BuildContext context) async {
@@ -284,6 +352,18 @@ class SettingsScreen extends StatelessWidget {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
               children: [
+                if (state.kdfBelowDefault)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                    child: _HardenBanner(
+                      busy: state.busy,
+                      onTap: () => _runHarden(
+                        context,
+                        target: KdfProfile.standard,
+                        params: KdfParams.defaultParams,
+                      ),
+                    ),
+                  ),
                 const SectionLabel('Vault'),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -809,6 +889,68 @@ class _PanicChoiceTile extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HardenBanner extends StatelessWidget {
+  const _HardenBanner({required this.busy, required this.onTap});
+
+  final bool busy;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: busy ? null : onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: c.accentSoft,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: c.accentLine, width: 1),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.shield_moon_outlined, size: 22, color: c.accent),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Vault below current security profile',
+                      style: TextStyle(
+                        color: c.fg,
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -0.07,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'This vault was created with older Argon2id parameters. '
+                      'Tap to re-key under the current defaults — adds a few '
+                      'seconds to each unlock.',
+                      style: TextStyle(
+                        color: c.muted,
+                        fontSize: 12.5,
+                        height: 1.45,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, size: 18, color: c.muted2),
+            ],
+          ),
         ),
       ),
     );
