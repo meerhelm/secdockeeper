@@ -6,6 +6,35 @@
 
 ---
 
+## 0. Implementation status (branch `claude/project-security-refactor-analysis-mwb5ah`)
+
+The remediation plan in §4 has been implemented as far as is safe to do **without a compiler or device in this environment** (no Flutter SDK is available here, so nothing below has been compiled or run). The guiding rule was **never break an existing vault**: every on-disk-format change is version-gated so existing v1 vaults keep their exact prior behaviour, and new vaults adopt the hardened format. Each item below landed as its own commit; pure-Dart logic has unit tests you can run with `flutter test`.
+
+| Item | Status | Notes |
+|---|---|---|
+| H-2 path traversal | **Done** | `SecureTemp.safeName` basenames attacker-controlled names; sanitised on import too. Tested. |
+| H-3 native crypto + isolate | **Done** | `FlutterCryptography.enable()` in `main`; Argon2id moved to `Isolate.run`. |
+| M-4 temp plaintext wipe | **Done** | `SecureTemp` registry; all temp subdirs wiped on lock/destroy. |
+| M-5 rekey base64 guard | **Done** | `VaultDatabase.rekey` asserts base64. |
+| L-3 silent notes drop | **Done** | Logged at error + `vault_meta` marker via `consumeNotesResetMarker`. |
+| L-6 stale docs | **Done** | `CLAUDE.md` corrected (go_router, KDF params, schema, format model). |
+| Refactor: notes DDL | **Done** | Single `_createNotes*Sql` constants. |
+| M-1 key separation | **Done (v2 vaults)** | VMK + HKDF-derived DB/wrap/tag keys; v1 unchanged. Tested. |
+| M-2 AAD binding | **Done (v2 rows)** | `format_version` column; rows bind DEK+blob to uuid. Schema→v5. Tested. |
+| M-3 atomic rotation | **Done (v2 vaults)** | `rotatePasswordV2` re-wraps only the VMK; v1 keeps heavy path. |
+| Multi-vault | **Foundation done; integration staged** | `VaultRegistry` + per-vault `VaultPaths` added and tested. See below. |
+| H-1 biometric binding | **Deferred (needs device)** | See below. |
+| L-1 zeroisation | **Deferred** | Largely unachievable in Dart (immutable `String`, GC); not worth risky `destroy()` calls blind. |
+
+**Why two items are deferred rather than guessed:**
+
+- **H-1 (biometric keystore binding).** The correct fix binds the stored secret to an Android Keystore key created with `setUserAuthenticationRequired(true)`. That requires either `flutter_secure_storage` 10.2.0's exact `AndroidOptions` biometric API (which I could not verify — the package source isn't in the local pub cache) or adding the `biometric_storage` package. Guessing the API would risk a compile error that breaks the entire build. Recommended next step on a device: confirm the 10.2.0 API (or add `biometric_storage`), store a *wrapped KEK* behind a user-auth-bound key instead of the raw password, and invalidate on biometric enrolment change. The storage instance is already injectable via `LockSettings({storage})`, so this is a localised change.
+- **Multi-vault integration.** The data layer is in (`VaultRegistry`, `VaultPaths.forVault`). The remaining work — a startup migration that **moves** an existing single vault's files into `vaults/<id>/`, a `VaultManager` owning the active `VaultService`, namespacing the `LockSettings` secure-storage keys per vault, and the picker UI — was deliberately not done blind: a buggy file-move migration could strand a real vault, and it needs device verification. Sequence it after confirming the v2 format works on a device.
+
+**To verify tomorrow:** `flutter pub get && flutter analyze && flutter test`. The new tests live under `test/core/crypto/`, `test/core/storage/`, and `test/features/vault/`. Then on a device/emulator: create a fresh vault (it will be v2), import a document, open it, lock/unlock, and change the master password (exercises `rotatePasswordV2`). An existing v1 vault from a prior build should still unlock and open documents unchanged.
+
+---
+
 ## 1. Executive summary
 
 SecDockKeeper has a fundamentally sound design: per-document DEKs wrapped under an Argon2id-derived KEK, SQLCipher for metadata, `FLAG_SECURE` set, `allowBackup="false"`, a KDF-parameter floor that rejects downgraded vault descriptors, constant-time password comparison, and HKDF-separated hidden-tag HMAC keys. The crypto primitives themselves (AES-256-GCM, Argon2id, HKDF-SHA256, HMAC-SHA256) are the right choices.

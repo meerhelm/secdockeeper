@@ -44,7 +44,7 @@ The flow:
 
 ### Storage layout (`lib/core/storage/`)
 
-- `VaultPaths` resolves to `<applicationSupportDirectory>/secdockeeper/`, with `vault.db` (SQLCipher) and `blobs/<uuid>.enc` (AES-GCM ciphertext) inside.
+- `VaultPaths` resolves to `<applicationSupportDirectory>/secdockeeper/`, with `vault.db` (SQLCipher) and `blobs/<uuid>.enc` (AES-GCM ciphertext) inside. A multi-vault **foundation** exists but is not yet wired into app startup: `VaultPaths.forVault(id)` resolves `secdockeeper/vaults/<id>/`, and `VaultRegistry` persists a plaintext `vaults.json` (ids/names/active). The running app still uses the single-vault `VaultPaths.resolve()` root; migrating into per-vault dirs + a `VaultManager` is a pending step.
 - `VaultDatabase` is at schema version 5. Schema includes `documents`, `folders`, `tags` + `document_tags` join, `hidden_tag_index` (HMAC-only deniable tags), `notes`, and FTS5 virtual tables `documents_fts(ocr_text, original_name)` and `notes_fts(title)`. `documents`/`notes` carry a `format_version` column (see crypto §3). Migrations are in `_onUpgrade` — bump the `version:` and add an `if (oldVersion < N)` block when changing schema. FTS tables are rebuilt on change (drop-and-reindex). The notes DDL is a single set of `_createNotes*Sql` constants shared by `_onCreate`/`_onUpgrade`/`_ensureNotesStorage`.
 - Short-lived decrypted plaintext only ever lands under the `SecureTemp` subdirectories (`sdk_view`, `sdk_share`, `ocr_scratch`, `sdk_backup`); `SecureTemp.wipeAll()` clears all of them and is wired into vault lock and destroy.
 - Foreign keys are enabled (`PRAGMA foreign_keys = ON`); deletions cascade through `document_tags` and `hidden_tag_index`.
