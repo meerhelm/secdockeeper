@@ -27,7 +27,7 @@ There is no separate code generation step (no build_runner). The OCR plugin (`go
 
 `main.dart` resolves `VaultPaths`, constructs a `VaultService`, loads `LockSettings`, and bundles them into `AppServices`. `AppServices` is exposed through an `InheritedWidget` (`AppScope`) — call `AppScope.of(context)` from any widget to reach repositories and services. Most service fields on `AppServices` are `late final` and lazily instantiated, so adding a new repository/service means a one-line field there plus the InheritedWidget consumers will pick it up.
 
-`SecDockKeeperApp` (in `app/app.dart`) is a single-widget router driven by `VaultService` (a `ChangeNotifier`): `VaultState.uninitialized → OnboardingScreen`, `locked → LockScreen`, `unlocked → DocumentsListScreen`. There is no `go_router`/named-route system — navigation inside the unlocked state is plain `Navigator.push`.
+`SecDockKeeperApp` (in `app/app.dart`) renders a `MaterialApp.router` whose `GoRouter` (built in `app/router.dart`) is driven by `VaultService` (a `ChangeNotifier`, wired as the router's `refreshListenable`): `VaultState.uninitialized → /onboarding`, `locked → /lock`, `unlocked → /documents`. Routes are declared in `app/routes.dart`; deeper navigation uses `context.go`/`context.push`.
 
 ### Vault lifecycle (`lib/features/vault/`, `lib/core/crypto/`)
 
@@ -35,8 +35,8 @@ There is no separate code generation step (no build_runner). The OCR plugin (`go
 
 The flow:
 
-1. `Kdf.deriveKek(password, salt)` runs Argon2id (default `m=19 MiB`, `t=2`, `p=1` per OWASP minimum — bumping these in `KdfParams.defaultParams` slows unlock).
-2. The same KEK bytes are base64-encoded and used as the SQLCipher password (see `_kekToDbPassword`). One password unlocks both the file blobs and the metadata DB.
+1. `Kdf.deriveKek(password, salt)` runs Argon2id on a **background isolate** (so the memory-hard hash never janks the UI). `KdfParams.defaultParams` is `m=64 MiB`, `t=3`, `p=1` (the `standard` profile); `hardenedParams` is `m=128 MiB`, `t=4`. `KdfParams.fromJson` rejects anything below the OWASP floor (`m≥19 MiB`, `t≥2`) so a tampered `vault.json` cannot downgrade strength.
+2. The same KEK bytes are base64-encoded and used as the SQLCipher password (see `_kekToDbPassword`). One password unlocks both the file blobs and the metadata DB. (`VaultDatabase.rekey` asserts the passphrase is base64 before interpolating it into `PRAGMA rekey`.)
 3. Per-document DEKs are random 32-byte keys, wrapped under the KEK with AES-GCM, stored alongside metadata in the `documents` table. File blobs (`blobs/<uuid>.enc`) are AES-GCM with the DEK.
 4. `vault.json` (the descriptor) stores only Argon2 salt + KDF params. It is plaintext and useless without the password.
 
@@ -45,7 +45,8 @@ The flow:
 ### Storage layout (`lib/core/storage/`)
 
 - `VaultPaths` resolves to `<applicationSupportDirectory>/secdockeeper/`, with `vault.db` (SQLCipher) and `blobs/<uuid>.enc` (AES-GCM ciphertext) inside.
-- `VaultDatabase` is at schema version 3. Schema includes `documents`, `folders`, `tags` + `document_tags` join, `hidden_tag_index` (HMAC-only deniable tags), and an FTS5 virtual table `documents_fts(ocr_text, original_name)`. Migrations are in `_onUpgrade` — bump the `version:` and add an `if (oldVersion < N)` block when changing schema. The FTS table was rebuilt in v3, so any future column changes likely need the same drop-and-reindex pattern.
+- `VaultDatabase` is at schema version 4. Schema includes `documents`, `folders`, `tags` + `document_tags` join, `hidden_tag_index` (HMAC-only deniable tags), `notes`, and FTS5 virtual tables `documents_fts(ocr_text, original_name)` and `notes_fts(title)`. Migrations are in `_onUpgrade` — bump the `version:` and add an `if (oldVersion < N)` block when changing schema. FTS tables are rebuilt on change (drop-and-reindex).
+- Short-lived decrypted plaintext only ever lands under the `SecureTemp` subdirectories (`sdk_view`, `sdk_share`, `ocr_scratch`, `sdk_backup`); `SecureTemp.wipeAll()` clears all of them and is wired into vault lock and destroy.
 - Foreign keys are enabled (`PRAGMA foreign_keys = ON`); deletions cascade through `document_tags` and `hidden_tag_index`.
 
 ### Feature layout (`lib/features/`)

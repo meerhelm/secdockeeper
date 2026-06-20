@@ -3,10 +3,10 @@ import 'dart:typed_data';
 
 import 'package:mime/mime.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/logging/app_logger.dart';
+import '../../core/storage/secure_temp.dart';
 import '../ocr/auto_classifier.dart';
 import '../ocr/ocr_service.dart';
 import '../vault/vault_service.dart';
@@ -85,9 +85,7 @@ class DocumentImportService {
     if (!OcrService.isSupported) return null;
     if (mimeType == null || !mimeType.startsWith('image/')) return null;
 
-    final tmpDir = await getTemporaryDirectory();
-    final scratch = Directory(p.join(tmpDir.path, 'ocr_scratch'));
-    if (!scratch.existsSync()) scratch.createSync(recursive: true);
+    final scratch = await SecureTemp.dir(SecureTemp.ocr);
     final file = File(p.join(scratch.path, 'src_${_uuid.v4()}'));
     try {
       await file.writeAsBytes(bytes, flush: true);

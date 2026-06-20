@@ -1,3 +1,4 @@
+import 'package:cryptography_flutter/cryptography_flutter.dart';
 import 'package:flutter/material.dart';
 
 import 'app/app.dart';
@@ -9,6 +10,11 @@ import 'features/vault/vault_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Route AES-GCM / HMAC through the platform-native backend on the main
+  // isolate. Argon2id is deliberately run on a spawned isolate (see Kdf), which
+  // does not inherit this backend and so stays on the pure-Dart implementation.
+  FlutterCryptography.enable();
 
   final paths = await VaultPaths.resolve();
   final vault = VaultService(paths: paths);

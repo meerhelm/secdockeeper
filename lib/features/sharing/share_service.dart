@@ -4,11 +4,11 @@ import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/crypto/aead.dart';
+import '../../core/storage/secure_temp.dart';
 import '../documents/document.dart';
 import '../documents/document_import_service.dart';
 import '../documents/document_open_service.dart';
@@ -79,7 +79,11 @@ class ShareService {
     if (version != _formatVersion) {
       throw FormatException('Unsupported share format version: $version');
     }
-    final originalName = keyJson['original_name'] as String? ?? 'imported';
+    // Collapse to a basename: the name is attacker-controlled and is later
+    // used to build a temp path when the document is opened (see
+    // DocumentOpenService), so it must not carry path separators.
+    final rawName = keyJson['original_name'] as String? ?? 'imported';
+    final originalName = p.basename(rawName.replaceAll(r'\', '/'));
     final mimeType = keyJson['mime_type'] as String?;
     final dekBytes = base64Decode(keyJson['dek']! as String);
     final nonce = base64Decode(keyJson['nonce']! as String);
@@ -103,8 +107,8 @@ class ShareService {
   }
 
   Future<Directory> _shareDir() async {
-    final tmp = await getTemporaryDirectory();
-    final out = Directory(p.join(tmp.path, 'sdk_share', _uuid.v4()));
+    final base = await SecureTemp.dir(SecureTemp.share);
+    final out = Directory(p.join(base.path, _uuid.v4()));
     out.createSync(recursive: true);
     return out;
   }

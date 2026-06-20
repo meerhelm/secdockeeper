@@ -123,8 +123,18 @@ class VaultDatabase {
 
   Future<void> close() => _db.close();
 
+  // PRAGMA cannot take a bound parameter, so the passphrase is interpolated.
+  // Every passphrase this app produces is base64 (a base64-encoded key), which
+  // contains no quote characters — assert that invariant so a future change to
+  // the passphrase format can never silently open a SQL-injection / corruption
+  // hole here.
+  static final _base64 = RegExp(r'^[A-Za-z0-9+/]+={0,2}$');
+
   Future<void> rekey(String newPassword) async {
-    // Using rawQuery instead of execute to ensure it's processed and awaited 
+    if (!_base64.hasMatch(newPassword)) {
+      throw ArgumentError('rekey passphrase must be base64');
+    }
+    // Using rawQuery instead of execute to ensure it's processed and awaited
     // correctly by sqflite_sqlcipher. PRAGMA rekey returns an empty list on success.
     await _db.rawQuery("PRAGMA rekey = '$newPassword'");
   }

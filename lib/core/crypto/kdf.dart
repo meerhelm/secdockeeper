@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -86,21 +87,41 @@ class Kdf {
 
   final KdfParams _params;
 
-  Argon2id get _argon2 => Argon2id(
-        memory: _params.memory,
-        parallelism: _params.parallelism,
-        iterations: _params.iterations,
-        hashLength: _params.hashLength,
-      );
-
+  /// Derives the KEK with Argon2id on a background isolate so the
+  /// memory-hard hash (64 MiB / t=3 by default) never blocks the UI thread.
+  ///
+  /// The isolate runs the pure-Dart Argon2id from `package:cryptography`
+  /// (a spawned isolate does not inherit the root isolate's `Cryptography`
+  /// backend, so this stays platform-channel-free and isolate-safe). AES-GCM
+  /// elsewhere still benefits from the native backend enabled in `main()`.
   Future<SecretKey> deriveKek({
     required String password,
     required List<int> salt,
   }) async {
-    return _argon2.deriveKey(
+    final params = _params;
+    final saltCopy = Uint8List.fromList(salt);
+    final bytes = await Isolate.run(
+      () => _deriveKekBytes(params, password, saltCopy),
+    );
+    return SecretKey(bytes);
+  }
+
+  static Future<Uint8List> _deriveKekBytes(
+    KdfParams params,
+    String password,
+    Uint8List salt,
+  ) async {
+    final argon2 = Argon2id(
+      memory: params.memory,
+      parallelism: params.parallelism,
+      iterations: params.iterations,
+      hashLength: params.hashLength,
+    );
+    final key = await argon2.deriveKey(
       secretKey: SecretKey(utf8.encode(password)),
       nonce: salt,
     );
+    return Uint8List.fromList(await key.extractBytes());
   }
 }
 
