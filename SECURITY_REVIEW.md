@@ -127,7 +127,47 @@ The export key file is effectively a plaintext key sitting in the temp dir for t
 
 ---
 
-## 5. What's already done well (keep it)
+## 5. Unlock speed & per-document encryption (clarification + guidance)
+
+**Per-document separate encryption is already the design — and it already does *not* affect unlock speed.** Each document is its own AES-GCM blob at `blobs/<uuid>.enc` with its own random DEK, and the file list / metadata lives in the SQLCipher `documents` table (`document_repository.dart`, `blob_store.dart`). So the "store each doc encrypted separately, keep the list in the DB" goal is met today.
+
+Critically, **unlock never touches blob files.** `VaultService.unlock` only (a) runs Argon2id to derive the KEK and (b) opens the SQLCipher DB. Loading the documents list (`DocumentsListCubit._refreshDocuments` → `SearchDocumentsUseCase` → a DB query) reads **metadata rows only** — no blob is read or decrypted. Thumbnails (`document_thumb.dart`) are MIME-type placeholders, not decrypted previews. Confirmed: the only blob-decrypt call sites are `DocumentOpenService` (explicit open) and `ShareService` (explicit export) — both user-initiated, never on the unlock or list path.
+
+**Therefore heavy files do not slow unlock at all today.** The entire perceptible unlock cost is Argon2id (`m=64 MiB, t=3`) running pure-Dart on the UI isolate — exactly finding **H-3**. Adding more separate-encryption machinery would not help; enabling native crypto and/or moving `deriveKek` to a background isolate is the actual fix. No change to the storage model is needed for unlock speed.
+
+**Forward guidance — when you add real (decrypted) thumbnail previews:** that is the one path that *could* reintroduce heavy-file cost. Do it lazily, per visible list item, off the UI isolate, and cache the rendered thumbnail (itself encrypted under the doc's DEK or a thumbnail DEK) so it is generated once — never eagerly decrypt all blobs at unlock or list build. A `thumb_blob`/`thumb_nonce`/`thumb_mac` set of columns (or a parallel `blobs/<uuid>.thumb.enc`) keeps previews as cheap, separately-encrypted artifacts consistent with the current model.
+
+---
+
+## 6. Multi-vault support (architecture for a planned feature)
+
+The current code is hard-wired to a **single** vault, so this is a structural change rather than an additive one. The blocking assumptions, all confirmed in the source:
+
+- **Paths are a single fixed root.** `VaultPaths.resolve()` (`core/storage/paths.dart`) always returns `<appSupport>/secdockeeper/` with one `vault.json`, one `vault.db`, one `blobs/`. Resolved once in `main.dart` and injected everywhere.
+- **`VaultService` is a de-facto singleton** holding one KEK / tag-HMAC key / DB handle, and the app router is driven directly by its single `state` (`uninitialized → locked → unlocked`).
+- **Secure-storage keys are global constants** (`lock_settings.dart`: `sdk.master_password`, `sdk.biometric_enabled`, `sdk.panic_*`, …). With more than one vault these **collide** — the stored biometric password, panic counter, and lockout would be shared/overwritten across vaults.
+- **Backup/restore assumes the single root** (`backup_service.dart`) and restore is gated on `state == uninitialized`.
+
+### Proposed shape
+1. **Vault registry.** A small plaintext index (e.g. `<appSupport>/secdockeeper/vaults.json`) listing vault entries: `{ id (uuid), displayName, createdAt }`. Contains **no** secret material — same trust level as today's `vault.json`. Optionally allow naming, but consider that vault *names* are metadata that leaks existence; for a deniability-minded app, support an "unlisted" vault opened only by entering its id/password.
+2. **Per-vault directories.** `VaultPaths.forVault(id)` → `<appSupport>/secdockeeper/vaults/<id>/` each with its own `vault.json`, `vault.db`, `blobs/`. Make `VaultPaths` carry the vault id; remove the static single-root `resolve()`.
+3. **`VaultManager` over `VaultService`.** Introduce a manager that owns the registry and the *currently active* `VaultService`. The router keys off the manager: `no vaults → onboarding`, `vault(s) exist but none open → vault picker / lock`, `active vault unlocked → documents`. `AppServices` repositories already take a `VaultService`, so they can be rebuilt per active vault (or scoped via the manager) without touching each repository.
+4. **Namespace all secure-storage keys by vault id.** Change the constants to `sdk.<vaultId>.master_password`, etc. This is required for correctness *and* interacts directly with **H-1** (biometric) — do the biometric Keystore rebinding and the per-vault namespacing in the same pass so each vault gets its own biometric-gated key.
+5. **Per-vault auto-lock / panic.** Panic counters, lockout, and the wipe action become per-vault. The "panic wipe" must wipe only the targeted vault's directory + its namespaced secure-storage keys, and remove its registry entry.
+6. **Backup/restore per vault.** Export one vault's directory; restore creates a *new* vault id in the registry rather than requiring a globally-uninitialized state. This also removes the current "restore only when uninitialized" limitation.
+
+### Interaction with the security findings — sequence deliberately
+- **M-1 (DB-key separation)** and **M-2 (AAD binding)** change the on-disk format. Defining the per-vault `vault.json` schema is the natural place to introduce a format version that already carries these, so new vaults are born correct and only legacy single-vault data needs migration. **Do M-1/M-2 as part of, or immediately before, the multi-vault format work** — not after, or you migrate twice.
+- **H-1 (biometric)** must be done together with step 4 (per-vault key namespacing).
+- **H-2 (path traversal)** is vault-independent — fix it first regardless.
+- **M-3 (rotation atomicity)** becomes per-vault but is otherwise unchanged.
+
+### Suggested ordering
+Phase 0 security quick-wins (H-2, H-3, M-4, M-5) → **then** the format-version work bundling M-1/M-2 → **then** multi-vault (registry, per-vault paths, `VaultManager`, namespaced secure storage + H-1) → then M-3 and hardening. This avoids designing the multi-vault on-disk format twice.
+
+---
+
+## 7. What's already done well (keep it)
 
 - KDF parameter floor rejects downgraded `vault.json` (`kdf.dart:48-59`).
 - Constant-time password comparison (`vault_service.dart:147-154`).
