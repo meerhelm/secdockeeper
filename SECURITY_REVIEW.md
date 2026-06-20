@@ -25,6 +25,7 @@ The remediation plan in §4 has been implemented as far as is safe to do **witho
 | Multi-vault | **Foundation done; integration staged** | `VaultRegistry` + per-vault `VaultPaths` added and tested. See below. |
 | H-1 biometric binding | **Deferred (needs device)** | See below. |
 | L-1 zeroisation | **Deferred** | Largely unachievable in Dart (immutable `String`, GC); not worth risky `destroy()` calls blind. |
+| Hidden vault (feature) | **Code done; needs device test** | Password-routed unlock + duress wipe + onboarding/settings UI. See §8 — the destructive duress path was not run here. |
 
 **Why two items are deferred rather than guessed:**
 
@@ -206,3 +207,25 @@ Phase 0 security quick-wins (H-2, H-3, M-4, M-5) → **then** the format-version
 - `FLAG_SECURE` set (`MainActivity.kt`), `allowBackup="false"`, redundant media permissions stripped.
 - Orphan secure-storage cleanup after uninstall (`main.dart:23-26`).
 - Logger defaults to suppressing output in release and the header explicitly forbids logging secrets.
+
+---
+
+## 8. Hidden vault (deniability feature)
+
+A single optional **hidden vault** for plausible deniability, layered on the v2 vault format. Opt-in: it exists only if the user creates it, so users who never do are entirely unaffected.
+
+### Behaviour
+- **Creation.** Offered at onboarding (a suggestion step after the panic choice) and in Settings → *Create hidden vault*. The user sets a separate password. Creating when one already exists silently replaces it.
+- **Opening.** At the normal lock screen, the entered password is tried against the primary vault first, then the hidden vault. Because each vault has its own salt/VMK, only the matching password unwraps a given vault — so typing the hidden password opens the hidden vault, and nothing in the UI reveals it exists. Use a password **different** from the primary one (if they were identical, the primary opens).
+- **Duress wipe.** On 3 consecutive wrong passwords (the existing panic threshold), the hidden vault is destroyed **unconditionally**, regardless of the normal vault's configured panic action. The normal vault then follows its own rule (escalating lockout, or wipe). This is the anti-coercion property: repeated probing self-destructs the hidden data.
+
+### Storage / where it lives
+`<appSupport>/.sdk_sys/` — a **sibling** of the primary `secdockeeper/` root, deliberately outside it so the primary vault's backup/export and `destroy()` never touch or include it. It is its own complete v2 vault (`vault.json` + `vault.db` + `blobs/`).
+
+### Security model & limitations (read before relying on it)
+- **This is behavioural deniability, not forensic-grade.** The hidden vault is concealed from the app's own UI and from primary backups, but the `.sdk_sys` directory and its encrypted `vault.db` are visible to anyone inspecting the device filesystem. A forensic examiner can see *that* a second encrypted vault exists (its contents stay protected by its password). True hidden-volume deniability (hiding within free space, à la VeraCrypt) is a much larger undertaking and is **not** implemented.
+- **The duress wipe is destructive and was not run here.** No Flutter SDK/device was available in this environment, and the create/unlock/wipe paths exercise Argon2id + SQLCipher, so they are **unit-untested end to end**. Before relying on this feature, device-test: (a) create primary + hidden with different passwords; (b) confirm each password opens the right vault; (c) confirm 3 wrong attempts removes `.sdk_sys` while the primary follows its panic setting; (d) confirm a primary backup/restore never carries the hidden vault.
+- **Biometric unlock** stores only the primary password, so biometrics never open the hidden vault — correct for deniability.
+
+### Code map
+`VaultService` (primary+hidden, `unlock` routing, `createHiddenVault`, `destroyHidden`, `activeIsHidden`), `VaultPaths.forHidden`, `CreateHiddenVaultUseCase`, `RegisterFailedUnlockUseCase` (duress hook), `showHiddenVaultDialog`, and the onboarding/settings wiring.

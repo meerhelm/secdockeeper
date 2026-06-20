@@ -119,7 +119,7 @@ class VaultService extends ChangeNotifier {
       throw StateError('Vault already initialized');
     }
     _setActive(_primaryPaths);
-    final opened = await _createVaultAt(_primaryPaths, masterPassword, keepOpen: true);
+    final opened = await _createVaultAt(_primaryPaths, masterPassword);
     _vaultDb = opened.db;
     _kek = opened.kek;
     _vmk = opened.vmk;
@@ -135,7 +135,7 @@ class VaultService extends ChangeNotifier {
     if (VaultDescriptor.exists(_hiddenPaths)) {
       await destroyHidden();
     }
-    final opened = await _createVaultAt(_hiddenPaths, masterPassword, keepOpen: false);
+    final opened = await _createVaultAt(_hiddenPaths, masterPassword);
     await opened.db?.close();
   }
 
@@ -331,14 +331,13 @@ class VaultService extends ChangeNotifier {
     await v?.close();
   }
 
-  /// Lays down a fresh v2 vault (descriptor + schema) at [paths]. Returns the
-  /// derived keys and, when [keepOpen], the open DB handle (otherwise the caller
-  /// is responsible for closing `db`).
+  /// Lays down a fresh v2 vault (descriptor + schema) at [paths] and returns the
+  /// derived keys plus the open DB handle. The caller decides whether to keep
+  /// the handle (primary unlock) or close it immediately (hidden vault setup).
   Future<_OpenedVault> _createVaultAt(
     VaultPaths paths,
-    String masterPassword, {
-    required bool keepOpen,
-  }) async {
+    String masterPassword,
+  ) async {
     final base = VaultDescriptor.createFresh();
     final kek = await Kdf(params: base.kdf).deriveKek(
       password: masterPassword,
