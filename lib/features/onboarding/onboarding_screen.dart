@@ -11,6 +11,7 @@ import '../../app/widgets/app_field.dart';
 import '../../app/widgets/brand_mark.dart';
 import '../../app/widgets/warn_banner.dart';
 import '../security/lock_settings.dart';
+import '../vault/widgets/hidden_vault_dialog.dart';
 import 'cubit/onboarding_cubit.dart';
 import 'cubit/onboarding_state.dart';
 
@@ -139,6 +140,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     await cubit.resolveBiometric(accepted: accept ?? false);
   }
 
+  Future<void> _onAskHidden() async {
+    final cubit = context.read<OnboardingCubit>();
+    final hiddenPassword = await showHiddenVaultDialog(
+      context,
+      confirmLabel: 'Create hidden vault',
+      cancelLabel: 'Skip',
+    );
+    await cubit.resolveHidden(hiddenPassword: hiddenPassword);
+  }
+
   Future<void> _onAskPanic() async {
     final cubit = context.read<OnboardingCubit>();
     final action = await _showPanicChooser(context);
@@ -259,10 +270,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       listenWhen: (prev, curr) =>
           prev.askBiometric != curr.askBiometric ||
           prev.askPanic != curr.askPanic ||
+          prev.askHidden != curr.askHidden ||
           prev.restoreMessage != curr.restoreMessage,
       listener: (context, state) {
         if (state.askBiometric) _onAskBiometric();
         if (state.askPanic) _onAskPanic();
+        if (state.askHidden) _onAskHidden();
         final msg = state.restoreMessage;
         if (msg != null) {
           messenger.showSnackBar(SnackBar(content: Text(msg)));

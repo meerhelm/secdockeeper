@@ -14,6 +14,7 @@ import '../../security/usecases/set_auto_lock_seconds.dart';
 import '../../security/usecases/set_panic_action.dart';
 import '../../security/usecases/set_theme_mode.dart';
 import '../../sharing/usecases/import_shared_package.dart';
+import '../../vault/usecases/create_hidden_vault.dart';
 import '../../vault/usecases/destroy_vault.dart';
 import '../../vault/usecases/get_vault_kdf_profile.dart';
 import '../../vault/usecases/rotate_vault_key.dart';
@@ -35,7 +36,9 @@ class SettingsCubit extends Cubit<SettingsState> {
     required DisableBiometricsUseCase disableBiometrics,
     required VerifyMasterPasswordUseCase verifyMasterPassword,
     required GetVaultKdfProfileUseCase getVaultKdfProfile,
+    required CreateHiddenVaultUseCase createHiddenVault,
   })  : _lockSettings = lockSettings,
+        _createHiddenVault = createHiddenVault,
         _setPanicAction = setPanicAction,
         _setAutoLockSeconds = setAutoLockSeconds,
         _setThemeMode = setThemeMode,
@@ -72,6 +75,7 @@ class SettingsCubit extends Cubit<SettingsState> {
   final DisableBiometricsUseCase _disableBiometrics;
   final VerifyMasterPasswordUseCase _verifyMasterPassword;
   final GetVaultKdfProfileUseCase _getVaultKdfProfile;
+  final CreateHiddenVaultUseCase _createHiddenVault;
 
   Future<void> _resolveBiometricAvailability() async {
     final available = await _isBiometricAvailable();
@@ -245,6 +249,26 @@ class SettingsCubit extends Cubit<SettingsState> {
           error: e, stackTrace: st);
       if (!isClosed) {
         emit(state.copyWith(busy: false, error: 'Failed to change password: $e'));
+      }
+    }
+  }
+
+  /// Creates (or silently replaces) the hidden vault. Does not change the
+  /// current session — the user stays in the vault they are already in.
+  Future<void> createHiddenVault(String password) async {
+    emit(state.copyWith(busy: true, clearError: true, clearMessage: true));
+    try {
+      await _createHiddenVault(password);
+      if (!isClosed) {
+        emit(state.copyWith(busy: false, message: 'Hidden vault ready.'));
+      }
+    } catch (e, st) {
+      log.e('[settings] create hidden vault failed', error: e, stackTrace: st);
+      if (!isClosed) {
+        emit(state.copyWith(
+          busy: false,
+          error: 'Failed to create hidden vault: $e',
+        ));
       }
     }
   }

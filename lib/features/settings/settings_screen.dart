@@ -11,6 +11,7 @@ import '../../core/crypto/kdf.dart';
 import '../security/lock_settings.dart';
 import '../vault/widgets/change_master_password_dialog.dart';
 import '../vault/widgets/destroy_vault_dialog.dart';
+import '../vault/widgets/hidden_vault_dialog.dart';
 import 'cubit/settings_cubit.dart';
 import 'cubit/settings_state.dart';
 
@@ -241,6 +242,18 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
+  Future<void> _createHiddenVault(BuildContext context) async {
+    final cubit = context.read<SettingsCubit>();
+    final password = await showHiddenVaultDialog(
+      context,
+      confirmLabel: 'Create',
+      cancelLabel: 'Cancel',
+      replacing: true,
+    );
+    if (password == null) return;
+    await cubit.createHiddenVault(password);
+  }
+
   Future<void> _destroyVault(BuildContext context) async {
     final cubit = context.read<SettingsCubit>();
     final confirmed = await showDialog<bool>(
@@ -335,6 +348,14 @@ class SettingsScreen extends StatelessWidget {
                         title: 'Auto-lock',
                         subtitle: _autoLockLabel(state.autoLockSeconds),
                         onTap: state.busy ? null : () => _pickAutoLock(context),
+                      ),
+                      RowTile(
+                        icon: Icons.visibility_off_outlined,
+                        title: 'Create hidden vault',
+                        subtitle: 'Deniable vault opened by its own password',
+                        onTap: state.busy
+                            ? null
+                            : () => _createHiddenVault(context),
                       ),
                     ],
                   ),

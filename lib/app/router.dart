@@ -49,6 +49,7 @@ import '../features/tags/usecases/unassign_tag.dart';
 import '../features/tags/usecases/watch_tag_changes.dart';
 import '../features/vault/cubit/lock_cubit.dart';
 import '../features/vault/lock_screen.dart';
+import '../features/vault/usecases/create_hidden_vault.dart';
 import '../features/vault/usecases/destroy_vault.dart';
 import '../features/vault/usecases/get_vault_kdf_profile.dart';
 import '../features/vault/usecases/initialize_vault.dart';
@@ -97,6 +98,7 @@ GoRouter buildAppRouter({required VaultService vault}) {
               enableBiometrics: EnableBiometricsUseCase(s.lockSettings),
               setPanicAction: SetPanicActionUseCase(s.lockSettings),
               restoreBackup: RestoreBackupUseCase(s.backup),
+              createHiddenVault: CreateHiddenVaultUseCase(s.vault),
             ),
             child: const OnboardingScreen(),
           );
@@ -249,6 +251,7 @@ GoRouter buildAppRouter({required VaultService vault}) {
               disableBiometrics: DisableBiometricsUseCase(s.lockSettings),
               verifyMasterPassword: VerifyMasterPasswordUseCase(s.vault),
               getVaultKdfProfile: GetVaultKdfProfileUseCase(s.paths),
+              createHiddenVault: CreateHiddenVaultUseCase(s.vault),
             ),
             child: const SettingsScreen(),
           );
