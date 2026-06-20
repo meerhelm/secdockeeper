@@ -48,6 +48,12 @@ class VaultService extends ChangeNotifier {
   /// rotation strategy and is false for legacy v1 vaults.
   bool get usesVmk => _vmk != null;
 
+  /// The crypto format new rows should be written at. Only VMK-backed (v2)
+  /// vaults use AAD-bound rows; legacy v1 vaults keep writing un-bound rows so
+  /// the legacy heavy-rotation path (which re-wraps DEKs without AAD) stays
+  /// correct. New vaults are always v2.
+  int get rowFormatVersion => usesVmk ? kCurrentRowFormatVersion : 1;
+
   Database get db {
     final v = _vaultDb;
     if (v == null) {

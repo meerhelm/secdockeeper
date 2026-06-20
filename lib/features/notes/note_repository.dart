@@ -26,7 +26,8 @@ class NoteRepository {
     final now = DateTime.now().millisecondsSinceEpoch;
     final uuid = _uuid.v4();
     final crypto = _vault.crypto;
-    final aad = rowAad(formatVersion: kCurrentRowFormatVersion, uuid: uuid);
+    final formatVersion = _vault.rowFormatVersion;
+    final aad = rowAad(formatVersion: formatVersion, uuid: uuid);
     final dek = await crypto.generateDek();
     final wrapped = await crypto.wrapDek(kek: _vault.wrapKey, dek: dek, aad: aad);
     final sealed = await crypto.encryptBlob(
@@ -44,7 +45,7 @@ class NoteRepository {
         'body_ciphertext': sealed.ciphertext,
         'body_nonce': sealed.nonce,
         'body_mac': sealed.mac,
-        'format_version': kCurrentRowFormatVersion,
+        'format_version': formatVersion,
         'created_at': now,
         'updated_at': now,
       });

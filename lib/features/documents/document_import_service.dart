@@ -50,8 +50,10 @@ class DocumentImportService {
 
     final crypto = _vault.crypto;
     final uuid = _uuid.v4();
-    // Bind the wrapped DEK and the blob to this row's uuid (M-2).
-    final aad = rowAad(formatVersion: kCurrentRowFormatVersion, uuid: uuid);
+    // Bind the wrapped DEK and the blob to this row's uuid on v2 vaults (M-2);
+    // legacy v1 vaults write un-bound rows (rowFormatVersion == 1 → null aad).
+    final formatVersion = _vault.rowFormatVersion;
+    final aad = rowAad(formatVersion: formatVersion, uuid: uuid);
     final dek = await crypto.generateDek();
     final wrapped = await crypto.wrapDek(kek: _vault.wrapKey, dek: dek, aad: aad);
     final sealed = await crypto.encryptBlob(dek: dek, plaintext: bytes, aad: aad);
@@ -71,7 +73,7 @@ class DocumentImportService {
         fileMac: sealed.mac,
         ocrText: ocrText,
         classificationAuto: classificationAuto,
-        formatVersion: kCurrentRowFormatVersion,
+        formatVersion: formatVersion,
       );
       return (await _repository.getById(id))!;
     } catch (e, st) {
