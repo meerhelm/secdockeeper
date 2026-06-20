@@ -35,7 +35,6 @@ class VaultService extends ChangeNotifier {
   SecretKey? _vmk; // v2 only — null for legacy v1 vaults
   SecretKey? _wrapKey; // wraps DEKs + encrypts hidden-tag names
   SecretKey? _tagHmacKey;
-  int _descriptorVersion = 0;
 
   VaultState get state {
     if (!VaultDescriptor.exists(_paths)) return VaultState.uninitialized;
@@ -110,7 +109,6 @@ class VaultService extends ChangeNotifier {
     _vmk = vmk;
     _wrapKey = await deriveWrapKey(vmk);
     _tagHmacKey = await deriveTagHmacKey(vmk);
-    _descriptorVersion = descriptor.version;
     notifyListeners();
   }
 
@@ -179,7 +177,6 @@ class VaultService extends ChangeNotifier {
       _vmk = vmk;
       _wrapKey = wrapKey;
       _tagHmacKey = await deriveTagHmacKey(tagKeyInput);
-      _descriptorVersion = descriptor.version;
       notifyListeners();
       return true;
     } catch (e, st) {
@@ -253,7 +250,6 @@ class VaultService extends ChangeNotifier {
     _vmk = null;
     _wrapKey = null;
     _tagHmacKey = null;
-    _descriptorVersion = 0;
     await v?.close();
     notifyListeners();
   }
@@ -265,7 +261,6 @@ class VaultService extends ChangeNotifier {
     _vmk = null;
     _wrapKey = null;
     _tagHmacKey = null;
-    _descriptorVersion = 0;
     await v?.close();
 
     final root = _paths.root;
