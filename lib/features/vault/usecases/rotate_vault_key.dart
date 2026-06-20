@@ -37,6 +37,15 @@ class RotateVaultKeyUseCase {
       throw StateError('Vault must be unlocked to rotate keys');
     }
 
+    // v2 (VMK-backed) vaults rotate in O(1): only the wrapped VMK is re-sealed
+    // under the new KEK. DEKs, the DB passphrase and tag hashes are derived from
+    // the unchanged VMK, so none of the heavy re-wrapping below is needed and
+    // the whole operation is a single crash-safe file write (finding M-3).
+    if (_vault.usesVmk) {
+      await _vault.rotatePasswordV2(newMasterPassword);
+      return;
+    }
+
     final oldKek = _vault.kek;
     final oldDescriptor = await VaultDescriptor.load(_paths);
 

@@ -28,6 +28,7 @@ class DocumentRepository {
     required Uint8List fileMac,
     String? ocrText,
     String? classificationAuto,
+    int formatVersion = 1,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final id = await _db.insert('documents', {
@@ -42,6 +43,7 @@ class DocumentRepository {
       'file_mac': fileMac,
       'ocr_text': ocrText,
       'classification_auto': classificationAuto,
+      'format_version': formatVersion,
       'created_at': now,
       'updated_at': now,
     });
@@ -121,7 +123,7 @@ class DocumentRepository {
   Future<DocumentCryptoMaterial?> getCryptoFor(int id) async {
     final rows = await _db.query(
       'documents',
-      columns: ['dek_wrapped', 'dek_nonce', 'dek_mac', 'file_nonce', 'file_mac'],
+      columns: ['dek_wrapped', 'dek_nonce', 'dek_mac', 'file_nonce', 'file_mac', 'format_version'],
       where: 'id = ?',
       whereArgs: [id],
       limit: 1,
@@ -134,13 +136,14 @@ class DocumentRepository {
       dekMac: r['dek_mac']! as Uint8List,
       fileNonce: r['file_nonce']! as Uint8List,
       fileMac: r['file_mac']! as Uint8List,
+      formatVersion: (r['format_version'] as int?) ?? 1,
     );
   }
 
   Future<Map<int, DocumentCryptoMaterial>> getAllCrypto() async {
     final rows = await _db.query(
       'documents',
-      columns: ['id', 'dek_wrapped', 'dek_nonce', 'dek_mac', 'file_nonce', 'file_mac'],
+      columns: ['id', 'dek_wrapped', 'dek_nonce', 'dek_mac', 'file_nonce', 'file_mac', 'format_version'],
     );
     return {
       for (final r in rows)
@@ -150,6 +153,7 @@ class DocumentRepository {
           dekMac: r['dek_mac']! as Uint8List,
           fileNonce: r['file_nonce']! as Uint8List,
           fileMac: r['file_mac']! as Uint8List,
+          formatVersion: (r['format_version'] as int?) ?? 1,
         ),
     };
   }

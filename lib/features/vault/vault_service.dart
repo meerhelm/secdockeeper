@@ -7,6 +7,7 @@ import 'package:sqflite_sqlcipher/sqflite.dart';
 import '../../core/crypto/kdf.dart';
 import '../../core/crypto/tag_hmac.dart';
 import '../../core/crypto/vault_crypto.dart';
+import '../../core/crypto/vault_keys.dart';
 import '../../core/logging/app_logger.dart';
 import '../../core/storage/blob_store.dart';
 import '../../core/storage/paths.dart';
@@ -25,9 +26,16 @@ class VaultService extends ChangeNotifier {
   final VaultCrypto _crypto;
   final BlobStore blobStore;
 
+  // AAD binding the wrapped VMK to its purpose, so a wrapped VMK can never be
+  // mistaken for (or swapped with) any other AES-GCM blob in the vault.
+  static final List<int> _vmkAad = utf8.encode('secdockeeper:vmk:v1');
+
   VaultDatabase? _vaultDb;
   SecretKey? _kek;
+  SecretKey? _vmk; // v2 only — null for legacy v1 vaults
+  SecretKey? _wrapKey; // wraps DEKs + encrypts hidden-tag names
   SecretKey? _tagHmacKey;
+  int _descriptorVersion = 0;
 
   VaultState get state {
     if (!VaultDescriptor.exists(_paths)) return VaultState.uninitialized;
@@ -36,6 +44,10 @@ class VaultService extends ChangeNotifier {
   }
 
   VaultCrypto get crypto => _crypto;
+
+  /// True once unlocked on a version-2 (VMK-backed) vault. Drives the choice of
+  /// rotation strategy and is false for legacy v1 vaults.
+  bool get usesVmk => _vmk != null;
 
   Database get db {
     final v = _vaultDb;
@@ -51,6 +63,15 @@ class VaultService extends ChangeNotifier {
     return k;
   }
 
+  /// The key that wraps per-document/-note DEKs and encrypts hidden-tag names.
+  /// For v2 vaults this is HKDF-derived from the VMK; for v1 vaults it is the
+  /// KEK itself, so legacy data keeps decrypting unchanged.
+  SecretKey get wrapKey {
+    final k = _wrapKey;
+    if (k == null) throw StateError('Vault is locked');
+    return k;
+  }
+
   TagHmac get tagHmac {
     final k = _tagHmacKey;
     if (k == null) throw StateError('Vault is locked');
@@ -61,12 +82,23 @@ class VaultService extends ChangeNotifier {
     if (VaultDescriptor.exists(_paths)) {
       throw StateError('Vault already initialized');
     }
-    final descriptor = VaultDescriptor.createFresh();
-    final kek = await Kdf(params: descriptor.kdf).deriveKek(
+    // New vaults are always version 2 (VMK-backed).
+    final base = VaultDescriptor.createFresh();
+    final kek = await Kdf(params: base.kdf).deriveKek(
       password: masterPassword,
-      salt: descriptor.salt,
+      salt: base.salt,
     );
-    final dbPassword = await _kekToDbPassword(kek);
+
+    final vmk = SecretKey(randomBytes(32));
+    final wrapped = await _crypto.wrapDek(kek: kek, dek: vmk, aad: _vmkAad);
+    final descriptor = base.withWrappedVmk(WrappedVmk(
+      nonce: wrapped.nonce,
+      ciphertext: wrapped.ciphertext,
+      mac: wrapped.mac,
+    ));
+
+    final dbKey = await deriveDbKey(vmk);
+    final dbPassword = base64Encode(await dbKey.extractBytes());
     final vaultDb = await VaultDatabase.open(
       path: _paths.databasePath,
       password: dbPassword,
@@ -75,7 +107,10 @@ class VaultService extends ChangeNotifier {
 
     _vaultDb = vaultDb;
     _kek = kek;
-    _tagHmacKey = await deriveTagHmacKey(kek);
+    _vmk = vmk;
+    _wrapKey = await deriveWrapKey(vmk);
+    _tagHmacKey = await deriveTagHmacKey(vmk);
+    _descriptorVersion = descriptor.version;
     notifyListeners();
   }
 
@@ -83,7 +118,7 @@ class VaultService extends ChangeNotifier {
     if (!VaultDescriptor.exists(_paths)) {
       throw StateError('Vault not initialized');
     }
-    
+
     // 1. Try with primary descriptor
     final descriptor = await VaultDescriptor.load(_paths);
     if (await _tryOpen(masterPassword, descriptor)) {
@@ -96,9 +131,8 @@ class VaultService extends ChangeNotifier {
     final backup = await VaultDescriptor.loadBackup(_paths);
     if (backup != null) {
       if (await _tryOpen(masterPassword, backup)) {
-        // We recovered using the old salt! 
-        // This means the DB re-key either failed or didn't happen.
-        // We should keep the backup until the next successful rotation attempt.
+        // We recovered using the pre-rotation descriptor. Keep the backup until
+        // the next successful rotation supersedes it.
         return true;
       }
     }
@@ -111,20 +145,46 @@ class VaultService extends ChangeNotifier {
       password: password,
       salt: descriptor.salt,
     );
-    final dbPassword = await _kekToDbPassword(kek);
     try {
+      SecretKey? vmk;
+      String dbPassword;
+      SecretKey wrapKey;
+      SecretKey tagKeyInput;
+
+      if (descriptor.usesVmk) {
+        // A wrong password fails the AES-GCM tag here, before we touch the DB.
+        final w = descriptor.wrappedVmk!;
+        vmk = await _crypto.unwrapDek(
+          kek: kek,
+          wrapped: WrappedDek(nonce: w.nonce, ciphertext: w.ciphertext, mac: w.mac),
+          aad: _vmkAad,
+        );
+        final dbKey = await deriveDbKey(vmk);
+        dbPassword = base64Encode(await dbKey.extractBytes());
+        wrapKey = await deriveWrapKey(vmk);
+        tagKeyInput = vmk;
+      } else {
+        // Legacy v1: KEK is the DB passphrase and the DEK-wrap key.
+        dbPassword = await _kekToDbPassword(kek);
+        wrapKey = kek;
+        tagKeyInput = kek;
+      }
+
       final vaultDb = await VaultDatabase.open(
         path: _paths.databasePath,
         password: dbPassword,
       );
       _vaultDb = vaultDb;
       _kek = kek;
-      _tagHmacKey = await deriveTagHmacKey(kek);
+      _vmk = vmk;
+      _wrapKey = wrapKey;
+      _tagHmacKey = await deriveTagHmacKey(tagKeyInput);
+      _descriptorVersion = descriptor.version;
       notifyListeners();
       return true;
     } catch (e, st) {
-      // Expected on wrong password (SQLCipher fails to open the encrypted DB);
-      // log at debug so real errors elsewhere still surface.
+      // Expected on wrong password (VMK unwrap or SQLCipher open fails); log at
+      // debug so genuine errors elsewhere still surface.
       log.d('[vault] _tryOpen failed', error: e, stackTrace: st);
       return false;
     }
@@ -133,9 +193,7 @@ class VaultService extends ChangeNotifier {
   void notifyExternalChange() => notifyListeners();
 
   /// Confirms that [password] derives the same KEK as the one currently held in
-  /// memory. Does not touch the open DB handle. Used by settings screens that
-  /// need to prove the user knows the master password (e.g. before storing it
-  /// for biometric unlock).
+  /// memory. Does not touch the open DB handle.
   Future<bool> verifyPassword(String password) async {
     final current = _kek;
     if (current == null) return false;
@@ -154,11 +212,48 @@ class VaultService extends ChangeNotifier {
     return diff == 0;
   }
 
+  /// O(1) crash-safe password rotation for v2 vaults: re-wrap the VMK under a
+  /// KEK derived from the new password and rewrite `vault.json`. The DB
+  /// passphrase, every wrapped DEK and all tag hashes are derived from the
+  /// (unchanged) VMK, so none of them move.
+  Future<void> rotatePasswordV2(String newMasterPassword) async {
+    final vmk = _vmk;
+    if (vmk == null) {
+      throw StateError('rotatePasswordV2 requires an unlocked v2 vault');
+    }
+    final oldDescriptor = await VaultDescriptor.load(_paths);
+    final newSalt = randomBytes(16);
+    final newKek = await Kdf(params: oldDescriptor.kdf).deriveKek(
+      password: newMasterPassword,
+      salt: newSalt,
+    );
+    final wrapped = await _crypto.wrapDek(kek: newKek, dek: vmk, aad: _vmkAad);
+    final newDescriptor = oldDescriptor.rotated(
+      newSalt: newSalt,
+      newWrappedVmk: WrappedVmk(
+        nonce: wrapped.nonce,
+        ciphertext: wrapped.ciphertext,
+        mac: wrapped.mac,
+      ),
+    );
+
+    // Keep the old descriptor recoverable across the single-file write.
+    await VaultDescriptor.backup(_paths);
+    await newDescriptor.save(_paths);
+    await VaultDescriptor.deleteBackup(_paths);
+
+    _kek = newKek;
+    notifyListeners();
+  }
+
   Future<void> lock() async {
     final v = _vaultDb;
     _vaultDb = null;
     _kek = null;
+    _vmk = null;
+    _wrapKey = null;
     _tagHmacKey = null;
+    _descriptorVersion = 0;
     await v?.close();
     notifyListeners();
   }
@@ -167,7 +262,10 @@ class VaultService extends ChangeNotifier {
     final v = _vaultDb;
     _vaultDb = null;
     _kek = null;
+    _vmk = null;
+    _wrapKey = null;
     _tagHmacKey = null;
+    _descriptorVersion = 0;
     await v?.close();
 
     final root = _paths.root;
@@ -180,8 +278,11 @@ class VaultService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Updates live key state after a legacy v1 rotation (DEK re-wrap + DB rekey).
+  /// v2 vaults rotate via [rotatePasswordV2] and do not call this.
   void updateKeysAfterRotation(SecretKey newKek, SecretKey newTagHmacKey) {
     _kek = newKek;
+    _wrapKey = newKek; // v1: the KEK is the wrap key
     _tagHmacKey = newTagHmacKey;
     notifyListeners();
   }

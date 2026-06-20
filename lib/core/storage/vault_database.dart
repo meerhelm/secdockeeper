@@ -17,7 +17,7 @@ class VaultDatabase {
   }) async {
     final database = await openDatabase(
       path,
-      version: 4,
+      version: 5,
       password: password,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON;');
@@ -81,6 +81,7 @@ class VaultDatabase {
       body_nonce BLOB NOT NULL,
       body_mac BLOB NOT NULL,
       folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL,
+      format_version INTEGER NOT NULL DEFAULT 1,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -193,6 +194,7 @@ class VaultDatabase {
         classification_auto TEXT,
         classification_manual TEXT,
         folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL,
+        format_version INTEGER NOT NULL DEFAULT 1,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
@@ -297,6 +299,17 @@ class VaultDatabase {
       }
       batch.execute(_createNotesFtsSql);
       await batch.commit(noResult: true);
+    }
+    if (oldVersion < 5) {
+      // Per-row crypto format version. Existing rows were written without AAD,
+      // so they default to 1; new rows are inserted at the current version and
+      // bind their DEK/blob to the row uuid (finding M-2).
+      await db.execute(
+        'ALTER TABLE documents ADD COLUMN format_version INTEGER NOT NULL DEFAULT 1;',
+      );
+      await db.execute(
+        'ALTER TABLE notes ADD COLUMN format_version INTEGER NOT NULL DEFAULT 1;',
+      );
     }
   }
 }

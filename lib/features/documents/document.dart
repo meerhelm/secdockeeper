@@ -51,6 +51,7 @@ class DocumentCryptoMaterial {
     required this.dekMac,
     required this.fileNonce,
     required this.fileMac,
+    this.formatVersion = 1,
   });
 
   final Uint8List dekWrapped;
@@ -58,4 +59,8 @@ class DocumentCryptoMaterial {
   final Uint8List dekMac;
   final Uint8List fileNonce;
   final Uint8List fileMac;
+
+  /// 1 = legacy (no AAD); ≥2 = wrapped DEK and blob bound to the row uuid via
+  /// AES-GCM associated data.
+  final int formatVersion;
 }

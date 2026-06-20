@@ -40,18 +40,24 @@ class Note {
 
 class NoteCryptoMaterial {
   const NoteCryptoMaterial({
+    required this.uuid,
     required this.dekWrapped,
     required this.dekNonce,
     required this.dekMac,
     required this.bodyCiphertext,
     required this.bodyNonce,
     required this.bodyMac,
+    this.formatVersion = 1,
   });
 
+  final String uuid;
   final Uint8List dekWrapped;
   final Uint8List dekNonce;
   final Uint8List dekMac;
   final Uint8List bodyCiphertext;
   final Uint8List bodyNonce;
   final Uint8List bodyMac;
+
+  /// 1 = legacy (no AAD); ≥2 = wrapped DEK and body bound to [uuid] via AAD.
+  final int formatVersion;
 }

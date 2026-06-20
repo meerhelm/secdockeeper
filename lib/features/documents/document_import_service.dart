@@ -5,6 +5,7 @@ import 'package:mime/mime.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
+import '../../core/crypto/vault_crypto.dart';
 import '../../core/logging/app_logger.dart';
 import '../../core/storage/secure_temp.dart';
 import '../ocr/auto_classifier.dart';
@@ -48,11 +49,13 @@ class DocumentImportService {
         _classifier.classify(originalName: originalName, ocrText: ocrText);
 
     final crypto = _vault.crypto;
-    final dek = await crypto.generateDek();
-    final wrapped = await crypto.wrapDek(kek: _vault.kek, dek: dek);
-    final sealed = await crypto.encryptBlob(dek: dek, plaintext: bytes);
-
     final uuid = _uuid.v4();
+    // Bind the wrapped DEK and the blob to this row's uuid (M-2).
+    final aad = rowAad(formatVersion: kCurrentRowFormatVersion, uuid: uuid);
+    final dek = await crypto.generateDek();
+    final wrapped = await crypto.wrapDek(kek: _vault.wrapKey, dek: dek, aad: aad);
+    final sealed = await crypto.encryptBlob(dek: dek, plaintext: bytes, aad: aad);
+
     await _vault.blobStore.write(uuid, sealed.ciphertext);
 
     try {
@@ -68,6 +71,7 @@ class DocumentImportService {
         fileMac: sealed.mac,
         ocrText: ocrText,
         classificationAuto: classificationAuto,
+        formatVersion: kCurrentRowFormatVersion,
       );
       return (await _repository.getById(id))!;
     } catch (e, st) {

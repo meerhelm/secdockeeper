@@ -26,13 +26,18 @@ class DocumentOpenService {
     if (material == null) {
       throw StateError('Crypto material missing for document ${document.id}');
     }
+    final aad = rowAad(
+      formatVersion: material.formatVersion,
+      uuid: document.uuid,
+    );
     final dek = await _vault.crypto.unwrapDek(
-      kek: _vault.kek,
+      kek: _vault.wrapKey,
       wrapped: WrappedDek(
         nonce: material.dekNonce,
         ciphertext: material.dekWrapped,
         mac: material.dekMac,
       ),
+      aad: aad,
     );
     final ciphertext = await _vault.blobStore.read(document.uuid);
     return _vault.crypto.decryptBlob(
@@ -42,6 +47,7 @@ class DocumentOpenService {
         ciphertext: ciphertext,
         mac: material.fileMac,
       ),
+      aad: aad,
     );
   }
 

@@ -21,7 +21,7 @@ class HiddenTagRepository {
   Future<void> assignByName(int documentId, String name) async {
     final hash = await _vault.tagHmac.hash(name);
     final sealed = await Aead.seal(
-      key: _vault.kek,
+      key: _vault.wrapKey,
       plaintext: utf8.encode(name.trim()),
     );
     await _db.insert(
@@ -71,7 +71,7 @@ class HiddenTagRepository {
       if (ct == null || nonce == null || mac == null) continue;
       try {
         final plaintext = await Aead.open(
-          key: _vault.kek,
+          key: _vault.wrapKey,
           sealed: SealedBytes(
             nonce: nonce as Uint8List,
             ciphertext: ct as Uint8List,

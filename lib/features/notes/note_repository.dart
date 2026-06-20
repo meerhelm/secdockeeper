@@ -26,11 +26,13 @@ class NoteRepository {
     final now = DateTime.now().millisecondsSinceEpoch;
     final uuid = _uuid.v4();
     final crypto = _vault.crypto;
+    final aad = rowAad(formatVersion: kCurrentRowFormatVersion, uuid: uuid);
     final dek = await crypto.generateDek();
-    final wrapped = await crypto.wrapDek(kek: _vault.kek, dek: dek);
+    final wrapped = await crypto.wrapDek(kek: _vault.wrapKey, dek: dek, aad: aad);
     final sealed = await crypto.encryptBlob(
       dek: dek,
       plaintext: utf8.encode(body),
+      aad: aad,
     );
     final id = await _db.transaction((txn) async {
       final id = await txn.insert('notes', {
@@ -42,6 +44,7 @@ class NoteRepository {
         'body_ciphertext': sealed.ciphertext,
         'body_nonce': sealed.nonce,
         'body_mac': sealed.mac,
+        'format_version': kCurrentRowFormatVersion,
         'created_at': now,
         'updated_at': now,
       });
@@ -116,17 +119,23 @@ class NoteRepository {
     final material = await _getCryptoFor(id);
     if (material == null) return;
     final crypto = _vault.crypto;
+    final aad = rowAad(
+      formatVersion: material.formatVersion,
+      uuid: material.uuid,
+    );
     final dek = await crypto.unwrapDek(
-      kek: _vault.kek,
+      kek: _vault.wrapKey,
       wrapped: WrappedDek(
         nonce: material.dekNonce,
         ciphertext: material.dekWrapped,
         mac: material.dekMac,
       ),
+      aad: aad,
     );
     final sealed = await crypto.encryptBlob(
       dek: dek,
       plaintext: utf8.encode(body),
+      aad: aad,
     );
     final now = DateTime.now().millisecondsSinceEpoch;
     await _db.transaction((txn) async {
@@ -165,23 +174,27 @@ class NoteRepository {
       'notes',
       columns: [
         'id',
+        'uuid',
         'dek_wrapped',
         'dek_nonce',
         'dek_mac',
         'body_ciphertext',
         'body_nonce',
         'body_mac',
+        'format_version',
       ],
     );
     return {
       for (final r in rows)
         r['id']! as int: NoteCryptoMaterial(
+          uuid: r['uuid']! as String,
           dekWrapped: r['dek_wrapped']! as Uint8List,
           dekNonce: r['dek_nonce']! as Uint8List,
           dekMac: r['dek_mac']! as Uint8List,
-          bodyCiphertext: r['body_ciphertext']! as Uint8List,
+          bodyCiphertext: (r['body_ciphertext'] as Uint8List?) ?? Uint8List(0),
           bodyNonce: r['body_nonce']! as Uint8List,
           bodyMac: r['body_mac']! as Uint8List,
+          formatVersion: (r['format_version'] as int?) ?? 1,
         ),
     };
   }
@@ -190,12 +203,14 @@ class NoteRepository {
     final rows = await _db.query(
       'notes',
       columns: [
+        'uuid',
         'dek_wrapped',
         'dek_nonce',
         'dek_mac',
         'body_ciphertext',
         'body_nonce',
         'body_mac',
+        'format_version',
       ],
       where: 'id = ?',
       whereArgs: [id],
@@ -204,24 +219,32 @@ class NoteRepository {
     if (rows.isEmpty) return null;
     final r = rows.first;
     return NoteCryptoMaterial(
+      uuid: r['uuid']! as String,
       dekWrapped: r['dek_wrapped']! as Uint8List,
       dekNonce: r['dek_nonce']! as Uint8List,
       dekMac: r['dek_mac']! as Uint8List,
-      bodyCiphertext: r['body_ciphertext']! as Uint8List,
+      bodyCiphertext: (r['body_ciphertext'] as Uint8List?) ?? Uint8List(0),
       bodyNonce: r['body_nonce']! as Uint8List,
       bodyMac: r['body_mac']! as Uint8List,
+      formatVersion: (r['format_version'] as int?) ?? 1,
     );
   }
 
   Future<Note> _hydrate(Map<String, Object?> row) async {
     final crypto = _vault.crypto;
+    final uuid = row['uuid']! as String;
+    final aad = rowAad(
+      formatVersion: (row['format_version'] as int?) ?? 1,
+      uuid: uuid,
+    );
     final dek = await crypto.unwrapDek(
-      kek: _vault.kek,
+      kek: _vault.wrapKey,
       wrapped: WrappedDek(
         nonce: row['dek_nonce']! as Uint8List,
         ciphertext: row['dek_wrapped']! as Uint8List,
         mac: row['dek_mac']! as Uint8List,
       ),
+      aad: aad,
     );
     // sqflite returns empty BLOBs as `null` in the column map, so we can't use
     // `!` here — an empty body (the default for a freshly created note)
@@ -233,6 +256,7 @@ class NoteRepository {
         ciphertext: (row['body_ciphertext'] as Uint8List?) ?? Uint8List(0),
         mac: row['body_mac']! as Uint8List,
       ),
+      aad: aad,
     );
     return Note(
       id: row['id']! as int,
