@@ -66,57 +66,93 @@ class VaultDatabase {
     'updated_at',
   };
 
+  // Single source of truth for the notes storage DDL, shared by _onCreate,
+  // _onUpgrade and the _ensureNotesStorage repair path so the three can never
+  // drift apart.
+  static const _createNotesTableSql = '''
+    CREATE TABLE notes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      uuid TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL DEFAULT '',
+      dek_wrapped BLOB NOT NULL,
+      dek_nonce BLOB NOT NULL,
+      dek_mac BLOB NOT NULL,
+      body_ciphertext BLOB NOT NULL,
+      body_nonce BLOB NOT NULL,
+      body_mac BLOB NOT NULL,
+      folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  ''';
+  static const _createNotesFtsSql =
+      'CREATE VIRTUAL TABLE notes_fts USING fts5(title);';
+  static const _createNotesIndexesSql = [
+    'CREATE INDEX IF NOT EXISTS idx_notes_updated_at ON notes(updated_at);',
+    'CREATE INDEX IF NOT EXISTS idx_notes_folder ON notes(folder_id);',
+  ];
+
+  /// `vault_meta` key set when [_ensureNotesStorage] is forced to drop an
+  /// incompatible `notes` table. Read and cleared by [consumeNotesResetMarker]
+  /// so the UI can tell the user their notes could not be migrated, rather than
+  /// the loss being silent.
+  static const notesResetMetaKey = 'notes_table_reset_at';
+
+  /// Returns the timestamp (ms since epoch) of the most recent destructive
+  /// notes-table reset, if one happened since it was last consumed, then clears
+  /// it. Null when there is nothing to report.
+  Future<int?> consumeNotesResetMarker() async {
+    final rows = await _db.query('vault_meta',
+        where: 'key = ?', whereArgs: [notesResetMetaKey], limit: 1);
+    if (rows.isEmpty) return null;
+    await _db.delete('vault_meta', where: 'key = ?', whereArgs: [notesResetMetaKey]);
+    return int.tryParse(rows.first['value']! as String);
+  }
+
   static Future<void> _ensureNotesStorage(Database db) async {
     final hasNotes = await _tableExists(db, 'notes');
     var needsCreate = !hasNotes;
+    var wasDestructiveReset = false;
 
     if (hasNotes) {
       final existing = await _columnsOf(db, 'notes');
       final missing = _notesRequiredColumns.difference(existing);
       if (missing.isNotEmpty) {
-        log.w('[vault_db] notes table schema drift; dropping and recreating. '
+        // The per-row crypto material in the incompatible table is unusable, so
+        // there is nothing to migrate — but record the loss so it can surface.
+        log.e('[vault_db] notes table schema drift; dropping and recreating. '
             'missing columns: $missing existing columns: $existing');
         await db.execute('DROP TABLE IF EXISTS notes_fts;');
         await db.execute('DROP TABLE IF EXISTS notes;');
         needsCreate = true;
+        wasDestructiveReset = true;
       }
     }
 
     if (needsCreate) {
-      await db.execute('''
-        CREATE TABLE notes (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          uuid TEXT NOT NULL UNIQUE,
-          title TEXT NOT NULL DEFAULT '',
-          dek_wrapped BLOB NOT NULL,
-          dek_nonce BLOB NOT NULL,
-          dek_mac BLOB NOT NULL,
-          body_ciphertext BLOB NOT NULL,
-          body_nonce BLOB NOT NULL,
-          body_mac BLOB NOT NULL,
-          folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL
-        );
-      ''');
-      await db.execute(
-        'CREATE INDEX IF NOT EXISTS idx_notes_updated_at ON notes(updated_at);',
-      );
-      await db.execute(
-        'CREATE INDEX IF NOT EXISTS idx_notes_folder ON notes(folder_id);',
-      );
+      await db.execute(_createNotesTableSql);
+      for (final sql in _createNotesIndexesSql) {
+        await db.execute(sql);
+      }
     }
 
     final hasFts = await _tableExists(db, 'notes_fts');
     if (!hasFts) {
-      await db.execute('''
-        CREATE VIRTUAL TABLE notes_fts USING fts5(
-          title
-        );
-      ''');
+      await db.execute(_createNotesFtsSql);
       // Rebuild the FTS index from any rows that may already exist.
       await db.execute(
         'INSERT INTO notes_fts(rowid, title) SELECT id, COALESCE(title, "") FROM notes;',
+      );
+    }
+
+    if (wasDestructiveReset && await _tableExists(db, 'vault_meta')) {
+      await db.insert(
+        'vault_meta',
+        {
+          'key': notesResetMetaKey,
+          'value': DateTime.now().millisecondsSinceEpoch.toString(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
   }
@@ -216,29 +252,11 @@ class VaultDatabase {
       );
     ''');
 
-    batch.execute('''
-      CREATE TABLE notes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        uuid TEXT NOT NULL UNIQUE,
-        title TEXT NOT NULL DEFAULT '',
-        dek_wrapped BLOB NOT NULL,
-        dek_nonce BLOB NOT NULL,
-        dek_mac BLOB NOT NULL,
-        body_ciphertext BLOB NOT NULL,
-        body_nonce BLOB NOT NULL,
-        body_mac BLOB NOT NULL,
-        folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-      );
-    ''');
-    batch.execute('CREATE INDEX idx_notes_updated_at ON notes(updated_at);');
-    batch.execute('CREATE INDEX idx_notes_folder ON notes(folder_id);');
-    batch.execute('''
-      CREATE VIRTUAL TABLE notes_fts USING fts5(
-        title
-      );
-    ''');
+    batch.execute(_createNotesTableSql);
+    for (final sql in _createNotesIndexesSql) {
+      batch.execute(sql);
+    }
+    batch.execute(_createNotesFtsSql);
 
     await batch.commit(noResult: true);
   }
@@ -273,29 +291,11 @@ class VaultDatabase {
     }
     if (oldVersion < 4) {
       final batch = db.batch();
-      batch.execute('''
-        CREATE TABLE notes (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          uuid TEXT NOT NULL UNIQUE,
-          title TEXT NOT NULL DEFAULT '',
-          dek_wrapped BLOB NOT NULL,
-          dek_nonce BLOB NOT NULL,
-          dek_mac BLOB NOT NULL,
-          body_ciphertext BLOB NOT NULL,
-          body_nonce BLOB NOT NULL,
-          body_mac BLOB NOT NULL,
-          folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL
-        );
-      ''');
-      batch.execute('CREATE INDEX idx_notes_updated_at ON notes(updated_at);');
-      batch.execute('CREATE INDEX idx_notes_folder ON notes(folder_id);');
-      batch.execute('''
-        CREATE VIRTUAL TABLE notes_fts USING fts5(
-          title
-        );
-      ''');
+      batch.execute(_createNotesTableSql);
+      for (final sql in _createNotesIndexesSql) {
+        batch.execute(sql);
+      }
+      batch.execute(_createNotesFtsSql);
       await batch.commit(noResult: true);
     }
   }
