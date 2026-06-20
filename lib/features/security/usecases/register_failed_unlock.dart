@@ -38,13 +38,20 @@ class RegisterFailedUnlockUseCase {
   RegisterFailedUnlockUseCase({
     required LockSettings lockSettings,
     required DestroyVaultUseCase destroyVault,
+    Future<void> Function()? destroyHiddenVault,
     DateTime Function() now = DateTime.now,
   })  : _lockSettings = lockSettings,
         _destroyVault = destroyVault,
+        _destroyHiddenVault = destroyHiddenVault,
         _now = now;
 
   final LockSettings _lockSettings;
   final DestroyVaultUseCase _destroyVault;
+
+  /// Removes the hidden vault, if any. Invoked unconditionally on every panic
+  /// threshold hit — the hidden vault is always destroyed on repeated wrong
+  /// passwords, regardless of the normal vault's configured panic action.
+  final Future<void> Function()? _destroyHiddenVault;
   final DateTime Function() _now;
 
   Future<FailedUnlockOutcome> call() async {
@@ -55,6 +62,9 @@ class RegisterFailedUnlockUseCase {
     if (!atThreshold) {
       return FailedUnlockRecorded(next);
     }
+
+    // Duress: wipe the hidden vault first, ignoring the normal panic policy.
+    await _destroyHiddenVault?.call();
 
     if (_lockSettings.panicAction == PanicAction.wipe) {
       await _destroyVault();

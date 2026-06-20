@@ -16,15 +16,30 @@ import 'vault_descriptor.dart';
 
 enum VaultState { uninitialized, locked, unlocked }
 
+/// Owns the in-memory secret material and the open DB handle for the currently
+/// unlocked vault.
+///
+/// There is one **primary** vault (created at onboarding) and at most one
+/// optional **hidden** vault (a plausible-deniability vault stored in a
+/// separate, unlisted directory). At the lock screen the entered password is
+/// tried against the primary descriptor first and then the hidden one, so
+/// typing the hidden vault's password transparently opens the hidden vault.
+/// `_active` tracks which vault is currently open; `blobStore`, `db` and the
+/// keys all follow it.
 class VaultService extends ChangeNotifier {
-  VaultService({required VaultPaths paths})
-      : _paths = paths,
+  VaultService({required VaultPaths paths, required VaultPaths hiddenPaths})
+      : _primaryPaths = paths,
+        _hiddenPaths = hiddenPaths,
         _crypto = VaultCrypto(),
-        blobStore = BlobStore(paths);
+        _active = paths,
+        _blobStore = BlobStore(paths);
 
-  final VaultPaths _paths;
+  final VaultPaths _primaryPaths;
+  final VaultPaths _hiddenPaths;
   final VaultCrypto _crypto;
-  final BlobStore blobStore;
+
+  VaultPaths _active;
+  BlobStore _blobStore;
 
   // AAD binding the wrapped VMK to its purpose, so a wrapped VMK can never be
   // mistaken for (or swapped with) any other AES-GCM blob in the vault.
@@ -36,10 +51,14 @@ class VaultService extends ChangeNotifier {
   SecretKey? _wrapKey; // wraps DEKs + encrypts hidden-tag names
   SecretKey? _tagHmacKey;
 
+  /// Blob store for the **currently active** vault.
+  BlobStore get blobStore => _blobStore;
+
   VaultState get state {
-    if (!VaultDescriptor.exists(_paths)) return VaultState.uninitialized;
-    if (_vaultDb == null || _kek == null) return VaultState.locked;
-    return VaultState.unlocked;
+    // Any open vault (primary or hidden) reads as unlocked.
+    if (_vaultDb != null && _kek != null) return VaultState.unlocked;
+    if (!VaultDescriptor.exists(_primaryPaths)) return VaultState.uninitialized;
+    return VaultState.locked;
   }
 
   VaultCrypto get crypto => _crypto;
@@ -53,6 +72,13 @@ class VaultService extends ChangeNotifier {
   /// the legacy heavy-rotation path (which re-wraps DEKs without AAD) stays
   /// correct. New vaults are always v2.
   int get rowFormatVersion => usesVmk ? kCurrentRowFormatVersion : 1;
+
+  /// Whether a hidden vault exists on disk. Used by the duress wipe; not
+  /// surfaced in normal UI.
+  bool get hasHiddenVault => VaultDescriptor.exists(_hiddenPaths);
+
+  /// True when the currently open vault is the hidden one.
+  bool get activeIsHidden => identical(_active, _hiddenPaths);
 
   Database get db {
     final v = _vaultDb;
@@ -83,68 +109,70 @@ class VaultService extends ChangeNotifier {
     return TagHmac(k);
   }
 
+  void _setActive(VaultPaths paths) {
+    _active = paths;
+    _blobStore = BlobStore(paths);
+  }
+
   Future<void> initialize(String masterPassword) async {
-    if (VaultDescriptor.exists(_paths)) {
+    if (VaultDescriptor.exists(_primaryPaths)) {
       throw StateError('Vault already initialized');
     }
-    // New vaults are always version 2 (VMK-backed).
-    final base = VaultDescriptor.createFresh();
-    final kek = await Kdf(params: base.kdf).deriveKek(
-      password: masterPassword,
-      salt: base.salt,
-    );
-
-    final vmk = SecretKey(randomBytes(32));
-    final wrapped = await _crypto.wrapDek(kek: kek, dek: vmk, aad: _vmkAad);
-    final descriptor = base.withWrappedVmk(WrappedVmk(
-      nonce: wrapped.nonce,
-      ciphertext: wrapped.ciphertext,
-      mac: wrapped.mac,
-    ));
-
-    final dbKey = await deriveDbKey(vmk);
-    final dbPassword = base64Encode(await dbKey.extractBytes());
-    final vaultDb = await VaultDatabase.open(
-      path: _paths.databasePath,
-      password: dbPassword,
-    );
-    await descriptor.save(_paths);
-
-    _vaultDb = vaultDb;
-    _kek = kek;
-    _vmk = vmk;
-    _wrapKey = await deriveWrapKey(vmk);
-    _tagHmacKey = await deriveTagHmacKey(vmk);
+    _setActive(_primaryPaths);
+    final opened = await _createVaultAt(_primaryPaths, masterPassword, keepOpen: true);
+    _vaultDb = opened.db;
+    _kek = opened.kek;
+    _vmk = opened.vmk;
+    _wrapKey = opened.wrapKey;
+    _tagHmacKey = opened.tagHmacKey;
     notifyListeners();
   }
 
+  /// Creates (or silently replaces) the hidden vault on disk **without**
+  /// disturbing the currently open session. The hidden vault is opened only to
+  /// lay down its schema, then closed again.
+  Future<void> createHiddenVault(String masterPassword) async {
+    if (VaultDescriptor.exists(_hiddenPaths)) {
+      await destroyHidden();
+    }
+    final opened = await _createVaultAt(_hiddenPaths, masterPassword, keepOpen: false);
+    await opened.db?.close();
+  }
+
   Future<bool> unlock(String masterPassword) async {
-    if (!VaultDescriptor.exists(_paths)) {
+    // 1. Primary vault.
+    if (VaultDescriptor.exists(_primaryPaths)) {
+      final primaryDesc = await VaultDescriptor.load(_primaryPaths);
+      if (await _tryOpenAt(masterPassword, _primaryPaths, primaryDesc)) {
+        await VaultDescriptor.deleteBackup(_primaryPaths);
+        return true;
+      }
+    } else {
       throw StateError('Vault not initialized');
     }
 
-    // 1. Try with primary descriptor
-    final descriptor = await VaultDescriptor.load(_paths);
-    if (await _tryOpen(masterPassword, descriptor)) {
-      // Success - if a backup existed, it's now stale
-      await VaultDescriptor.deleteBackup(_paths);
-      return true;
-    }
-
-    // 2. Recovery: Try with backup descriptor (in case rotation failed)
-    final backup = await VaultDescriptor.loadBackup(_paths);
-    if (backup != null) {
-      if (await _tryOpen(masterPassword, backup)) {
-        // We recovered using the pre-rotation descriptor. Keep the backup until
-        // the next successful rotation supersedes it.
+    // 2. Hidden vault — opened by typing its own password into the same prompt.
+    if (VaultDescriptor.exists(_hiddenPaths)) {
+      final hiddenDesc = await VaultDescriptor.load(_hiddenPaths);
+      if (await _tryOpenAt(masterPassword, _hiddenPaths, hiddenDesc)) {
         return true;
       }
+    }
+
+    // 3. Recovery: primary rotation backup descriptor (rotation crash window).
+    final backup = await VaultDescriptor.loadBackup(_primaryPaths);
+    if (backup != null && await _tryOpenAt(masterPassword, _primaryPaths, backup)) {
+      return true;
     }
 
     return false;
   }
 
-  Future<bool> _tryOpen(String password, VaultDescriptor descriptor) async {
+  Future<bool> _tryOpenAt(
+    String password,
+    VaultPaths paths,
+    VaultDescriptor descriptor,
+  ) async {
     final kek = await Kdf(params: descriptor.kdf).deriveKek(
       password: password,
       salt: descriptor.salt,
@@ -168,14 +196,13 @@ class VaultService extends ChangeNotifier {
         wrapKey = await deriveWrapKey(vmk);
         tagKeyInput = vmk;
       } else {
-        // Legacy v1: KEK is the DB passphrase and the DEK-wrap key.
         dbPassword = await _kekToDbPassword(kek);
         wrapKey = kek;
         tagKeyInput = kek;
       }
 
       final vaultDb = await VaultDatabase.open(
-        path: _paths.databasePath,
+        path: paths.databasePath,
         password: dbPassword,
       );
       _vaultDb = vaultDb;
@@ -183,24 +210,24 @@ class VaultService extends ChangeNotifier {
       _vmk = vmk;
       _wrapKey = wrapKey;
       _tagHmacKey = await deriveTagHmacKey(tagKeyInput);
+      _setActive(paths);
       notifyListeners();
       return true;
     } catch (e, st) {
       // Expected on wrong password (VMK unwrap or SQLCipher open fails); log at
       // debug so genuine errors elsewhere still surface.
-      log.d('[vault] _tryOpen failed', error: e, stackTrace: st);
+      log.d('[vault] _tryOpenAt failed', error: e, stackTrace: st);
       return false;
     }
   }
 
   void notifyExternalChange() => notifyListeners();
 
-  /// Confirms that [password] derives the same KEK as the one currently held in
-  /// memory. Does not touch the open DB handle.
+  /// Confirms [password] derives the same KEK as the active vault's.
   Future<bool> verifyPassword(String password) async {
     final current = _kek;
     if (current == null) return false;
-    final descriptor = await VaultDescriptor.load(_paths);
+    final descriptor = await VaultDescriptor.load(_active);
     final candidate = await Kdf(params: descriptor.kdf).deriveKek(
       password: password,
       salt: descriptor.salt,
@@ -215,16 +242,14 @@ class VaultService extends ChangeNotifier {
     return diff == 0;
   }
 
-  /// O(1) crash-safe password rotation for v2 vaults: re-wrap the VMK under a
-  /// KEK derived from the new password and rewrite `vault.json`. The DB
-  /// passphrase, every wrapped DEK and all tag hashes are derived from the
-  /// (unchanged) VMK, so none of them move.
+  /// O(1) crash-safe password rotation for the active v2 vault: re-wrap the VMK
+  /// under a KEK derived from the new password and rewrite `vault.json`.
   Future<void> rotatePasswordV2(String newMasterPassword) async {
     final vmk = _vmk;
     if (vmk == null) {
       throw StateError('rotatePasswordV2 requires an unlocked v2 vault');
     }
-    final oldDescriptor = await VaultDescriptor.load(_paths);
+    final oldDescriptor = await VaultDescriptor.load(_active);
     final newSalt = randomBytes(16);
     final newKek = await Kdf(params: oldDescriptor.kdf).deriveKek(
       password: newMasterPassword,
@@ -240,43 +265,51 @@ class VaultService extends ChangeNotifier {
       ),
     );
 
-    // Keep the old descriptor recoverable across the single-file write.
-    await VaultDescriptor.backup(_paths);
-    await newDescriptor.save(_paths);
-    await VaultDescriptor.deleteBackup(_paths);
+    await VaultDescriptor.backup(_active);
+    await newDescriptor.save(_active);
+    await VaultDescriptor.deleteBackup(_active);
 
     _kek = newKek;
     notifyListeners();
   }
 
   Future<void> lock() async {
-    final v = _vaultDb;
-    _vaultDb = null;
-    _kek = null;
-    _vmk = null;
-    _wrapKey = null;
-    _tagHmacKey = null;
-    await v?.close();
+    await _clearKeysAndClose();
+    _setActive(_primaryPaths);
     notifyListeners();
   }
 
+  /// Destroys the **primary** vault (and resets to onboarding). The hidden
+  /// vault, if any, is intentionally left untouched here — it has its own
+  /// lifecycle (duress wipe / explicit replacement).
   Future<void> destroy() async {
-    final v = _vaultDb;
-    _vaultDb = null;
-    _kek = null;
-    _vmk = null;
-    _wrapKey = null;
-    _tagHmacKey = null;
-    await v?.close();
+    await _clearKeysAndClose();
+    _setActive(_primaryPaths);
 
-    final root = _paths.root;
+    final root = _primaryPaths.root;
     if (root.existsSync()) {
       root.deleteSync(recursive: true);
     }
     root.createSync(recursive: true);
-    _paths.blobsDir.createSync(recursive: true);
+    _primaryPaths.blobsDir.createSync(recursive: true);
 
     notifyListeners();
+  }
+
+  /// Removes the hidden vault from disk, ignoring all normal panic/lockout
+  /// rules. Safe to call when locked (the common duress case) — it just deletes
+  /// the directory. If the hidden vault happens to be the open one, it is locked
+  /// first.
+  Future<void> destroyHidden() async {
+    if (activeIsHidden && _vaultDb != null) {
+      await _clearKeysAndClose();
+      _setActive(_primaryPaths);
+      notifyListeners();
+    }
+    final root = _hiddenPaths.root;
+    if (root.existsSync()) {
+      root.deleteSync(recursive: true);
+    }
   }
 
   /// Updates live key state after a legacy v1 rotation (DEK re-wrap + DB rekey).
@@ -288,8 +321,70 @@ class VaultService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> _clearKeysAndClose() async {
+    final v = _vaultDb;
+    _vaultDb = null;
+    _kek = null;
+    _vmk = null;
+    _wrapKey = null;
+    _tagHmacKey = null;
+    await v?.close();
+  }
+
+  /// Lays down a fresh v2 vault (descriptor + schema) at [paths]. Returns the
+  /// derived keys and, when [keepOpen], the open DB handle (otherwise the caller
+  /// is responsible for closing `db`).
+  Future<_OpenedVault> _createVaultAt(
+    VaultPaths paths,
+    String masterPassword, {
+    required bool keepOpen,
+  }) async {
+    final base = VaultDescriptor.createFresh();
+    final kek = await Kdf(params: base.kdf).deriveKek(
+      password: masterPassword,
+      salt: base.salt,
+    );
+    final vmk = SecretKey(randomBytes(32));
+    final wrapped = await _crypto.wrapDek(kek: kek, dek: vmk, aad: _vmkAad);
+    final descriptor = base.withWrappedVmk(WrappedVmk(
+      nonce: wrapped.nonce,
+      ciphertext: wrapped.ciphertext,
+      mac: wrapped.mac,
+    ));
+    final dbKey = await deriveDbKey(vmk);
+    final dbPassword = base64Encode(await dbKey.extractBytes());
+    final vaultDb = await VaultDatabase.open(
+      path: paths.databasePath,
+      password: dbPassword,
+    );
+    await descriptor.save(paths);
+    return _OpenedVault(
+      db: vaultDb,
+      kek: kek,
+      vmk: vmk,
+      wrapKey: await deriveWrapKey(vmk),
+      tagHmacKey: await deriveTagHmacKey(vmk),
+    );
+  }
+
   static Future<String> _kekToDbPassword(SecretKey kek) async {
     final bytes = await kek.extractBytes();
     return base64Encode(bytes);
   }
+}
+
+class _OpenedVault {
+  _OpenedVault({
+    required this.db,
+    required this.kek,
+    required this.vmk,
+    required this.wrapKey,
+    required this.tagHmacKey,
+  });
+
+  final VaultDatabase? db;
+  final SecretKey kek;
+  final SecretKey vmk;
+  final SecretKey wrapKey;
+  final SecretKey tagHmacKey;
 }

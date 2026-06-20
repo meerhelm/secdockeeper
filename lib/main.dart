@@ -17,7 +17,8 @@ Future<void> main() async {
   FlutterCryptography.enable();
 
   final paths = await VaultPaths.resolve();
-  final vault = VaultService(paths: paths);
+  final hiddenPaths = await VaultPaths.forHidden();
+  final vault = VaultService(paths: paths, hiddenPaths: hiddenPaths);
   final lockSettings = LockSettings();
   await lockSettings.load();
 

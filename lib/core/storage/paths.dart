@@ -45,6 +45,18 @@ class VaultPaths {
     return VaultPaths.forRoot(root);
   }
 
+  /// Root for the single optional **hidden** vault. Deliberately a *sibling* of
+  /// the primary `secdockeeper/` root (not inside it), so the primary vault's
+  /// backup/export and `destroy()` never touch or reveal it. Note: this hides
+  /// the hidden vault from the app's own UI/registry and from primary backups,
+  /// but it is not forensic-grade deniability — the directory still exists on
+  /// disk for anyone inspecting the filesystem.
+  static Future<VaultPaths> forHidden() async {
+    final base = await getApplicationSupportDirectory();
+    final root = Directory(p.join(base.path, '.sdk_sys'));
+    return VaultPaths.forRoot(root);
+  }
+
   String get databasePath => p.join(root.path, 'vault.db');
 
   Directory get blobsDir => Directory(p.join(root.path, 'blobs'));

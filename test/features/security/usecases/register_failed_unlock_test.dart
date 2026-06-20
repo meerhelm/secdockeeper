@@ -101,4 +101,51 @@ void main() {
       verifyNever(() => settings.setLockedUntil(any()));
     });
   });
+
+  group('hidden vault duress wipe', () {
+    var hiddenWipes = 0;
+
+    RegisterFailedUnlockUseCase buildWithHidden() =>
+        RegisterFailedUnlockUseCase(
+          lockSettings: settings,
+          destroyVault: destroyVault,
+          destroyHiddenVault: () async => hiddenWipes++,
+          now: () => fakeNow,
+        );
+
+    setUp(() => hiddenWipes = 0);
+
+    test('hidden vault is NOT wiped before the threshold', () async {
+      when(() => settings.panicAction).thenReturn(PanicAction.lockout);
+      when(() => settings.failedAttempts).thenReturn(0);
+
+      await buildWithHidden()();
+
+      expect(hiddenWipes, 0);
+    });
+
+    test('hidden vault IS wiped at the 3rd fail under lockout policy', () async {
+      // Lockout: the normal vault only cools down, but the hidden vault is
+      // still destroyed regardless of the panic action.
+      when(() => settings.panicAction).thenReturn(PanicAction.lockout);
+      when(() => settings.failedAttempts).thenReturn(2);
+
+      final outcome = await buildWithHidden()();
+
+      expect(outcome, isA<FailedUnlockCooldown>());
+      expect(hiddenWipes, 1);
+      verifyNever(() => destroyVault());
+    });
+
+    test('hidden vault IS wiped at the 3rd fail under wipe policy', () async {
+      when(() => settings.panicAction).thenReturn(PanicAction.wipe);
+      when(() => settings.failedAttempts).thenReturn(2);
+
+      final outcome = await buildWithHidden()();
+
+      expect(outcome, isA<FailedUnlockWiped>());
+      expect(hiddenWipes, 1);
+      verify(() => destroyVault()).called(1);
+    });
+  });
 }

@@ -125,6 +125,7 @@ GoRouter buildAppRouter({required VaultService vault}) {
                   opener: s.opener,
                   lockSettings: s.lockSettings,
                 ),
+                destroyHiddenVault: () => s.vault.destroyHidden(),
               ),
               lockSettings: s.lockSettings,
             ),
