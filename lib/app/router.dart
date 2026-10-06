@@ -233,9 +233,6 @@ GoRouter buildAppRouter({required VaultService vault}) {
               ),
               rotateVaultKey: RotateVaultKeyUseCase(
                 vault: s.vault,
-                documents: s.documents,
-                hiddenTags: s.hiddenTags,
-                notes: s.notes,
                 paths: s.paths,
               ),
               destroyVault: DestroyVaultUseCase(

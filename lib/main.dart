@@ -4,6 +4,7 @@ import 'app/app.dart';
 import 'app/app_scope.dart';
 import 'core/logging/app_logger.dart';
 import 'core/storage/paths.dart';
+import 'core/storage/temp_files.dart';
 import 'features/security/lock_settings.dart';
 import 'features/vault/vault_service.dart';
 
@@ -24,6 +25,10 @@ Future<void> main() async {
     log.w('orphan secure storage detected after uninstall — clearing');
     await lockSettings.clearAll();
   }
+
+  // Plaintext left behind by a previous run that was killed before it could
+  // lock (viewer copies, share keys, OCR scratch, picker cache).
+  await TempFiles.wipe(includeBackups: true);
 
   final services = AppServices(
     vault: vault,

@@ -2,12 +2,12 @@ import 'dart:io';
 
 import 'package:archive/archive_io.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/logging/app_logger.dart';
 import '../../core/storage/paths.dart';
+import '../../core/storage/temp_files.dart';
 import '../vault/vault_service.dart';
 
 class BackupArchive {
@@ -31,8 +31,8 @@ class BackupService {
       await _vault.lock();
     }
 
-    final tmp = await getTemporaryDirectory();
-    final outDir = Directory(p.join(tmp.path, 'sdk_backup', _uuid.v4()));
+    final backupRoot = await TempFiles.dir(TempFiles.backupDir);
+    final outDir = Directory(p.join(backupRoot.path, _uuid.v4()));
     outDir.createSync(recursive: true);
     final stamp = DateTime.now().toIso8601String().replaceAll(':', '-').split('.').first;
     final outFile = File(p.join(outDir.path, 'secdockeeper-backup-$stamp.zip'));

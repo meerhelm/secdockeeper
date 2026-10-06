@@ -4,11 +4,11 @@ import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/crypto/aead.dart';
+import '../../core/storage/temp_files.dart';
 import '../documents/document.dart';
 import '../documents/document_import_service.dart';
 import '../documents/document_open_service.dart';
@@ -79,7 +79,8 @@ class ShareService {
     if (version != _formatVersion) {
       throw FormatException('Unsupported share format version: $version');
     }
-    final originalName = keyJson['original_name'] as String? ?? 'imported';
+    final originalName =
+        sanitizeFileName(keyJson['original_name'] as String? ?? 'imported');
     final mimeType = keyJson['mime_type'] as String?;
     final dekBytes = base64Decode(keyJson['dek']! as String);
     final nonce = base64Decode(keyJson['nonce']! as String);
@@ -103,8 +104,8 @@ class ShareService {
   }
 
   Future<Directory> _shareDir() async {
-    final tmp = await getTemporaryDirectory();
-    final out = Directory(p.join(tmp.path, 'sdk_share', _uuid.v4()));
+    final shareRoot = await TempFiles.dir(TempFiles.shareDir);
+    final out = Directory(p.join(shareRoot.path, _uuid.v4()));
     out.createSync(recursive: true);
     return out;
   }
