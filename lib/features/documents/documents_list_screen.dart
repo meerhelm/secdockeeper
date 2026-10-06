@@ -10,6 +10,7 @@ import '../../app/widgets/app_search_field.dart';
 import '../../app/widgets/badges.dart';
 import '../../app/widgets/brand_mark.dart';
 import '../../app/widgets/icon_chip_button.dart';
+import '../../core/storage/temp_files.dart';
 import '../folders/folder.dart';
 import '../notes/note.dart';
 import '../tags/tag.dart';
@@ -64,6 +65,7 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
         (name: f.name, bytes: f.bytes, path: f.path),
     ];
     await cubit.importFiles(inputs);
+    await TempFiles.clearPickerCache();
   }
 
   Future<void> _pickAndImportFromGallery(DocumentsListCubit cubit) async {
@@ -78,6 +80,7 @@ class _DocumentsListScreenState extends State<DocumentsListScreen> {
         (name: f.name, bytes: f.bytes, path: f.path),
     ];
     await cubit.importFiles(inputs);
+    await TempFiles.clearPickerCache();
   }
 
   Future<void> _openTagFilter() async {

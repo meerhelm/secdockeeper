@@ -52,15 +52,22 @@ class VaultDescriptor {
         kdf: KdfParams.defaultParams,
       );
 
-  Future<void> save(VaultPaths paths) async {
-    final file = _file(paths);
-    final json = {
-      'version': version,
-      'salt': base64Encode(salt),
-      'kdf': kdf.toJson(),
-    };
-    await file.writeAsString(jsonEncode(json), flush: true);
-  }
+  Map<String, Object?> toJson() => {
+        'version': version,
+        'salt': base64Encode(salt),
+        'kdf': kdf.toJson(),
+      };
+
+  factory VaultDescriptor.fromJson(Map<String, Object?> json) => VaultDescriptor(
+        version: json['version']! as int,
+        salt: Uint8List.fromList(base64Decode(json['salt']! as String)),
+        kdf: KdfParams.fromJson((json['kdf']! as Map).cast<String, Object?>()),
+      );
+
+  /// The salt in vault.json is the only copy, so the file is replaced via
+  /// write-to-temp + rename: a crash leaves either the old or the new file.
+  Future<void> save(VaultPaths paths) =>
+      writeFileAtomically(_file(paths), jsonEncode(toJson()));
 
   static Future<VaultDescriptor> load(VaultPaths paths) async {
     return _loadFromFile(_file(paths));
@@ -68,11 +75,12 @@ class VaultDescriptor {
 
   static Future<VaultDescriptor> _loadFromFile(File file) async {
     final raw = await file.readAsString();
-    final json = jsonDecode(raw) as Map<String, Object?>;
-    return VaultDescriptor(
-      version: json['version']! as int,
-      salt: Uint8List.fromList(base64Decode(json['salt']! as String)),
-      kdf: KdfParams.fromJson((json['kdf']! as Map).cast<String, Object?>()),
-    );
+    return VaultDescriptor.fromJson(jsonDecode(raw) as Map<String, Object?>);
   }
+}
+
+Future<void> writeFileAtomically(File file, String contents) async {
+  final tmp = File('${file.path}.tmp');
+  await tmp.writeAsString(contents, flush: true);
+  await tmp.rename(file.path);
 }

@@ -8,6 +8,7 @@ import '../../app/tokens.dart';
 import '../../app/widgets/row_tile.dart';
 import '../../app/widgets/section_label.dart';
 import '../../core/crypto/kdf.dart';
+import '../../core/storage/temp_files.dart';
 import '../security/lock_settings.dart';
 import '../vault/widgets/change_master_password_dialog.dart';
 import '../vault/widgets/destroy_vault_dialog.dart';
@@ -69,6 +70,7 @@ class SettingsScreen extends StatelessWidget {
       blobFile: File(blobPath),
       keyFile: File(keyPath),
     );
+    await TempFiles.clearPickerCache();
   }
 
   Future<void> _changePassword(BuildContext context) async {

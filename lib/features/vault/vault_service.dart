@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
@@ -11,7 +9,9 @@ import '../../core/logging/app_logger.dart';
 import '../../core/storage/blob_store.dart';
 import '../../core/storage/paths.dart';
 import '../../core/storage/vault_database.dart';
+import 'key_rotation_journal.dart';
 import 'vault_descriptor.dart';
+import 'vault_key_migrator.dart';
 
 enum VaultState { uninitialized, locked, unlocked }
 
@@ -66,7 +66,7 @@ class VaultService extends ChangeNotifier {
       password: masterPassword,
       salt: descriptor.salt,
     );
-    final dbPassword = await _kekToDbPassword(kek);
+    final dbPassword = await kekToDbPassword(kek);
     final vaultDb = await VaultDatabase.open(
       path: _paths.databasePath,
       password: dbPassword,
@@ -84,6 +84,20 @@ class VaultService extends ChangeNotifier {
       throw StateError('Vault not initialized');
     }
     
+    // A password change was interrupted: finish it toward whichever
+    // password the user typed.
+    final journal = await KeyRotationJournal.load(_paths);
+    if (journal != null) {
+      for (final d in [journal.oldDescriptor, journal.newDescriptor]) {
+        final kek = await Kdf(params: d.kdf).deriveKek(
+          password: masterPassword,
+          salt: d.salt,
+        );
+        if (await _completeRotation(journal, kek)) return true;
+      }
+      return false;
+    }
+
     // 1. Try with primary descriptor
     final descriptor = await VaultDescriptor.load(_paths);
     if (await _tryOpen(masterPassword, descriptor)) {
@@ -111,7 +125,7 @@ class VaultService extends ChangeNotifier {
       password: password,
       salt: descriptor.salt,
     );
-    final dbPassword = await _kekToDbPassword(kek);
+    final dbPassword = await kekToDbPassword(kek);
     try {
       final vaultDb = await VaultDatabase.open(
         path: _paths.databasePath,
@@ -128,6 +142,54 @@ class VaultService extends ChangeNotifier {
       log.d('[vault] _tryOpen failed', error: e, stackTrace: st);
       return false;
     }
+  }
+
+  /// Brings an interrupted key rotation to a consistent state under [kek]
+  /// and opens the vault with it. Returns false if [kek] matches neither
+  /// side of the journal.
+  Future<bool> _completeRotation(KeyRotationJournal journal, SecretKey kek) async {
+    final keys = await journal.resolve(kek);
+    if (keys == null) return false;
+    final migrator = VaultKeyMigrator(target: keys.target, other: keys.other);
+    final vaultDb = await migrator.open(_paths.databasePath);
+    try {
+      await migrator.rewrapAll(vaultDb.db);
+      await keys.descriptor.save(_paths);
+      await KeyRotationJournal.delete(_paths);
+      await VaultDescriptor.deleteBackup(_paths);
+    } catch (_) {
+      await vaultDb.close();
+      rethrow;
+    }
+    _vaultDb = vaultDb;
+    _kek = keys.target;
+    _tagHmacKey = await deriveTagHmacKey(keys.target);
+    notifyListeners();
+    return true;
+  }
+
+  /// Called when a password change fails part-way: closes the DB and rolls
+  /// the vault back to [oldKek]. If even that fails the vault stays locked
+  /// and the journal makes the next unlock finish the job.
+  Future<void> abortRotation(SecretKey oldKek) async {
+    final v = _vaultDb;
+    _vaultDb = null;
+    _kek = null;
+    _tagHmacKey = null;
+    try {
+      await v?.close();
+    } catch (e, st) {
+      log.w('[vault] closing DB during rotation rollback failed',
+          error: e, stackTrace: st);
+    }
+    try {
+      final journal = await KeyRotationJournal.load(_paths);
+      if (journal != null && await _completeRotation(journal, oldKek)) return;
+    } catch (e, st) {
+      log.e('[vault] rotation rollback failed; vault left locked',
+          error: e, stackTrace: st);
+    }
+    notifyListeners();
   }
 
   void notifyExternalChange() => notifyListeners();
@@ -184,10 +246,5 @@ class VaultService extends ChangeNotifier {
     _kek = newKek;
     _tagHmacKey = newTagHmacKey;
     notifyListeners();
-  }
-
-  static Future<String> _kekToDbPassword(SecretKey kek) async {
-    final bytes = await kek.extractBytes();
-    return base64Encode(bytes);
   }
 }

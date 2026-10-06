@@ -39,6 +39,7 @@ The flow:
 2. The same KEK bytes are base64-encoded and used as the SQLCipher password (see `_kekToDbPassword`). One password unlocks both the file blobs and the metadata DB.
 3. Per-document DEKs are random 32-byte keys, wrapped under the KEK with AES-GCM, stored alongside metadata in the `documents` table. File blobs (`blobs/<uuid>.enc`) are AES-GCM with the DEK.
 4. `vault.json` (the descriptor) stores only Argon2 salt + KDF params. It is plaintext and useless without the password.
+5. Changing the master password (`RotateVaultKeyUseCase`) first writes `vault.json.rotating` (`KeyRotationJournal`: both descriptors + each KEK sealed under the other), then re-wraps rows, rekeys SQLCipher and swaps `vault.json`. If it stops part-way, `VaultService.unlock` uses the journal and `VaultKeyMigrator` to converge the vault on whichever password is typed. Every step must stay idempotent.
 
 `AutoLockController` is a `WidgetsBindingObserver` that calls `vault.lock()` on `paused`/`hidden`/`inactive` based on `LockSettings.autoLockSeconds` (0 = immediate). `vault.lock()` clears the KEK, tag HMAC, and closes the DB — all secret material lives only on the `VaultService` instance.
 
@@ -63,6 +64,6 @@ Each feature is a self-contained folder usually with a `*_repository.dart` (DB-b
 
 - Use **Conventional Commits** for all git history (e.g., `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`).
 - Planned features and security enhancements live in the [GitHub issue tracker](https://github.com/meerhelm/secdockeeper/issues).
-- Decrypted plaintext is short-lived: in memory during import re-encryption, and in a temp file while a system viewer reads it. The temp directory is wiped on lock — don't introduce long-lived plaintext caches.
+- Decrypted plaintext is short-lived: in memory during import re-encryption, and in a temp file while a system viewer reads it. All temp locations are listed in `core/storage/temp_files.dart` and wiped on manual lock, on resume after auto-lock, and on app start — put any new temp output there and don't introduce long-lived plaintext caches. Names that reach the filesystem go through `sanitizeFileName`.
 - Don't add code paths that bypass `VaultService.lock()` — the assumption that `_kek`/`_vaultDb` go null on lock is load-bearing for the `state` getter and screen routing.
 - Hidden tags must not appear in any list, autocomplete, or count surface; treat them as a search-only feature.

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
@@ -62,4 +63,11 @@ class VaultCrypto {
   }) {
     return Aead.open(key: dek, sealed: sealed, aad: aad);
   }
+}
+
+/// SQLCipher passphrase for a KEK. The DB and the blob DEKs share one secret,
+/// so this is the only place the encoding should live.
+Future<String> kekToDbPassword(SecretKey kek) async {
+  final bytes = await kek.extractBytes();
+  return base64Encode(bytes);
 }

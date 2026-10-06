@@ -48,8 +48,11 @@ class AppServices {
   late final ShareService share = ShareService(opener: opener, importer: importer);
   late final BackupService backup = BackupService(vault: vault, paths: paths);
   late final BiometricService biometrics = BiometricService();
-  late final AutoLockController autoLock =
-      AutoLockController(vault: vault, settings: lockSettings);
+  late final AutoLockController autoLock = AutoLockController(
+    vault: vault,
+    settings: lockSettings,
+    wipeTemp: opener.deleteAllTemp,
+  );
 }
 
 class AppScope extends InheritedWidget {
